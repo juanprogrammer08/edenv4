@@ -132,19 +132,14 @@ export function VistaServicios({ auth }) {
             <div className="form-group"><label>Precio de venta</label>
               <input type="number" step="any" min="0" value={nuevo.precio_venta}
                      onChange={e => setNuevo({ ...nuevo, precio_venta: e.target.value })} required /></div>
-            <div className="form-group"><label>Costo materiales</label>
-              <input type="number" step="any" min="0" value={nuevo.costo_materiales}
-                     onChange={e => setNuevo({ ...nuevo, costo_materiales: e.target.value })} /></div>
-            <div className="form-group"><label>Costo mano de obra</label>
+            <div className="form-group"><label>Costo de mano de obra (opcional)</label>
               <input type="number" step="any" min="0" value={nuevo.costo_mano_obra}
                      onChange={e => setNuevo({ ...nuevo, costo_mano_obra: e.target.value })} /></div>
-            <div className="form-group"><label>Tiempo estimado (h)</label>
-              <input type="number" step="any" min="0" value={nuevo.tiempo_estimado_horas}
-                     onChange={e => setNuevo({ ...nuevo, tiempo_estimado_horas: e.target.value })} /></div>
           </div>
           <div className="form-group"><label>Descripción</label>
             <textarea value={nuevo.descripcion} rows={2}
                       onChange={e => setNuevo({ ...nuevo, descripcion: e.target.value })} /></div>
+          <p className="nota">Los materiales y demás costos se registran aparte como ítems dentro de cada cotización (campo "Costo" de cada fila).</p>
           <button type="submit" className="btn btn-primary" disabled={trabajo}>Agregar al catálogo</button>
         </form>
       )}
@@ -153,7 +148,7 @@ export function VistaServicios({ auth }) {
           <p className="muted">Catálogo vacío.</p>
         ) : (
           <table className="table">
-            <thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Precio</th><th>Costo</th><th>Margen</th><th>Estado</th><th></th></tr></thead>
+            <thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Precio</th><th>Estado</th><th></th></tr></thead>
             <tbody>
               {servicios.map(s => (
                 <tr key={s.id} className={s.activo ? '' : 'fila-inactiva'}>
@@ -162,8 +157,6 @@ export function VistaServicios({ auth }) {
                   <td>{s.categoria}</td>
                   <td>{s.unidad}</td>
                   <td>{fmtCOP(s.precio_venta)}</td>
-                  <td>{fmtCOP(s.costo_total)}</td>
-                  <td>{s.margen_pct}%</td>
                   <td>{s.activo ? 'Activo' : 'Inactivo'}</td>
                   <td className="acciones">
                     {esDueno && (
