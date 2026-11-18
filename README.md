@@ -29,6 +29,8 @@ propias de la empresa. Se desarrolla por fases (ver "Hoja de ruta" al final).
     cd api
     DATABASE_URL=sqlite:///./test_fase1.db python -m uvicorn app.main:app --port 8421
     python test_fase1.py        # 26 pruebas E2E de la fase 1
+    DATABASE_URL=sqlite:///./test_fase2.db python -m uvicorn app.main:app --port 8422
+    python test_fase2.py        # 26 pruebas E2E de la fase 2
 
 ## Seguridad (FASE 1)
 
@@ -44,15 +46,34 @@ propias de la empresa. Se desarrolla por fases (ver "Hoja de ruta" al final).
   crear usuarios, ni tocar al dueño.
 - Contraseñas de usuario mínimo 8 caracteres.
 
+## FASE 2 — Telegram (hecha, pendiente del token real del dueño)
+
+- Config del bot en el panel (solo dueño): token **cifrado con Fernet** y
+  validado contra getMe al guardarlo — un token falso se rechaza de una vez.
+  El token nunca sale del backend ni se vuelve a mostrar.
+- Long-polling (desarrollo) o **webhook HTTPS con secreto**
+  `X-Telegram-Bot-Api-Secret-Token` (producción); sin secreto → 403.
+- Vinculación segura: código temporal de 6 dígitos de un solo uso (10 min,
+  solo hasheado en BD), un chat de Telegram queda ligado a un usuario del
+  panel. Los no vinculados solo reciben su Telegram ID e instrucciones.
+- Comandos: /start, /vincular CODIGO, /estado, /desvincular.
+- Recepción de fotos y documentos (máx 20 MB) guardados en `MEDIA_DIR/telegram`.
+- Notificaciones manuales del dueño a cuentas vinculadas.
+- Historial completo de mensajes (entradas, salidas, fallos de envío).
+- Auditoría Telegram: códigos, vinculación, webhook rechazado, activar/desactivar,
+  notificaciones. El admin no ve la config del bot.
+
 ## Variables de entorno
 
 | Variable | Default | Uso |
 |---|---|---|
-| AUTH_SECRET | — (requerida en producción) | clave firma JWT |
+| AUTH_SECRET | — (requerida en producción) | clave firma JWT + cifrado del token del bot |
 | DATABASE_URL | sqlite:///./app.db | cadena PostgreSQL |
 | CORS_ORIGINS | * | lista separada por comas en producción |
-| LOGIN_RATE_LIMIT | 6 | intentos de login por ventana |
-| LOGIN_WINDOW_SECONDS | 300 | ventana del rate limit |
+| LOGIN_RATE_LIMIT / LOGIN_WINDOW_SECONDS | 6 / 300 | límite intentos login |
+| MEDIA_DIR | ./media | guardado de adjuntos |
+| PUBLIC_BASE_URL | — | base pública del API para registro del webhook |
+| TG_CODE_TTL_MINUTOS / TG_MAX_ADJUNTO_MB / TG_POLL_SECONDS | 10 / 20 / 25 | Telegram |
 
 ## Rutas API
 
@@ -69,6 +90,7 @@ propias de la empresa. Se desarrolla por fases (ver "Hoja de ruta" al final).
 | /empresa | GET | autenticado |
 | /empresa | PUT | solo dueño |
 | /auditoria | GET | solo dueño |
+| /telegram/... | GET/POST/PUT/DELETE | estado y código (autenticado); config/cuentas/notificar (solo dueño) |
 | /cotizaciones, /proyectos, /gastos, /bitacoras | CRUD | autenticado |
 
 ## Hoja de ruta (spec maestra)

@@ -473,6 +473,252 @@ function VistaCuenta({ auth, alActualizar }) {
 }
 
 // ============================================================
+// Vista Telegram
+// ============================================================
+function VistaTelegram({ auth }) {
+  const esDueno = auth.user.rol === 'dueno'
+  const [estado, setEstado] = useState(null)
+  const [cuentas, setCuentas] = useState([])
+  const [mensajes, setMensajes] = useState([])
+  const [msg, setMsg] = useState(null)
+  const [tokenInput, setTokenInput] = useState('')
+  const [modoInput, setModoInput] = useState('polling')
+  const [webhookUrl, setWebhookUrl] = useState('')
+  const [codigo, setCodigo] = useState(null)
+  const [notifi, setNotifi] = useState({ cuenta_id: '', texto: '' })
+  const [trabajo, setTrabajo] = useState(false)
+
+  async function cargarTodo() {
+    try {
+      const est = await apiFetch('/telegram/estado', { token: auth.token })
+      setEstado(est)
+      setModoInput(est.bot.modo || 'polling')
+      setWebhookUrl(est.bot.webhook_url || '')
+      if (esDueno) {
+        setCuentas(await apiFetch('/telegram/cuentas', { token: auth.token }))
+      }
+      setMensajes(await apiFetch('/telegram/mensajes?limit=15', { token: auth.token }))
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    }
+  }
+  useEffect(() => { cargarTodo() }, [])
+
+  async function guardarToken(e) {
+    e.preventDefault()
+    setMsg(null)
+    setTrabajo(true)
+    try {
+      const nueva = await apiFetch('/telegram/config', {
+        method: 'PUT', body: { bot_token: tokenInput, modo: modoInput }, token: auth.token,
+      })
+      setTokenInput('')
+      setMsg({ tipo: 'ok', texto: `Token validado y cifrado. Bot: ${nueva.bot_username}` })
+      await cargarTodo()
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    } finally {
+      setTrabajo(false)
+    }
+  }
+
+  async function accion(nombre, cuerpo = null) {
+    setMsg(null)
+    setTrabajo(true)
+    try {
+      const r = await apiFetch(`/telegram/${nombre}`, { method: 'POST', body: cuerpo || {}, token: auth.token })
+      setMsg({ tipo: 'ok', texto: r.estado_texto ? `Bot: ${r.estado_texto}` : 'Hecho.' })
+      await cargarTodo()
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    } finally {
+      setTrabajo(false)
+    }
+  }
+
+  async function generarCodigo() {
+    setMsg(null)
+    try {
+      setCodigo(await apiFetch('/telegram/codigo', { token: auth.token }))
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    }
+  }
+
+  async function desvincular(id) {
+    if (!window.confirm('¿Desvincular esta cuenta de Telegram?')) return
+    try {
+      await apiFetch(`/telegram/cuentas/${id}`, { method: 'DELETE', token: auth.token })
+      await cargarTodo()
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    }
+  }
+
+  async function enviarNotificacion(e) {
+    e.preventDefault()
+    setMsg(null)
+    try {
+      const r = await apiFetch('/telegram/notificar', {
+        method: 'POST', body: { cuenta_id: Number(notifi.cuenta_id), texto: notifi.texto }, token: auth.token,
+      })
+      setMsg({ tipo: r.ok ? 'ok' : 'error', texto: r.ok ? 'Notificación enviada.' : 'Telegram no entregó el mensaje.' })
+      await cargarTodo()
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    }
+  }
+
+  if (!estado) return msg ? <div className="alert alert-error">{msg.texto}</div> : <div className="spinner" />
+  const bot = estado.bot
+
+  return (
+    <div>
+      <h3 className="vista-titulo">Telegram</h3>
+      {msg && <div className={`alert ${msg.tipo === 'ok' ? 'alert-success' : 'alert-error'}`}>{msg.texto}</div>}
+
+      <div className="grid-cards">
+        <div className="stat-card">
+          <span className="stat-valor">{bot.activo ? 'En línea' : 'Apagado'}</span>
+          <span className="stat-etiqueta">Estado del bot</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-valor">{bot.bot_username || '—'}</span>
+          <span className="stat-etiqueta">Bot configurado</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-valor">{estado.mi_cuenta.vinculada ? 'Vinculado' : 'Sin vincular'}</span>
+          <span className="stat-etiqueta">Tu Telegram {estado.mi_cuenta.chat_id ? `(${estado.mi_cuenta.chat_id})` : ''}</span>
+        </div>
+      </div>
+
+      <div className="card">
+        <h4>Vincular tu cuenta</h4>
+        {!estado.mi_cuenta.vinculada ? (
+          <>
+            <p className="muted">Genera un código temporal de un solo uso (10 minutos) y envíalo al bot por Telegram: <code>/vincular CODIGO</code></p>
+            {codigo ? (
+              <p className="codigo-grande">{codigo.codigo} <em>expira en {codigo.expira_en_minutos} minutos</em></p>
+            ) : (
+              <button type="button" className="btn btn-primary" onClick={generarCodigo}>Generar código</button>
+            )}
+          </>
+        ) : (
+          <button type="button" className="btn btn-mini" onClick={() => desvincularConfirmado()}>Desvincular mi chat</button>
+        )}
+      </div>
+
+      {esDueno && (
+        <div className="card">
+          <h4>Configuración del bot (solo dueño)</h4>
+          <form onSubmit={guardarToken} className="fila-form">
+            <div className="form-group">
+              <label>Token de @BotFather (se guarda cifrado; nunca se vuelve a mostrar)</label>
+              <input type="password" value={tokenInput} onChange={e => setTokenInput(e.target.value)} placeholder="123456:ABC-DEF..." required />
+            </div>
+            <div className="form-group">
+              <label>Modo</label>
+              <select value={modoInput} onChange={e => setModoInput(e.target.value)}>
+                <option value="polling">Long-polling (desarrollo)</option>
+                <option value="webhook">Webhook (producción HTTPS)</option>
+              </select>
+            </div>
+            <button type="submit" className="btn btn-primary" disabled={trabajo}>Guardar y validar</button>
+          </form>
+          {modoInput === 'webhook' && (
+            <div className="form-group">
+              <label>URL pública del webhook</label>
+              <input value={webhookUrl} onChange={e => setWebhookUrl(e.target.value)} placeholder="https://tu-dominio/api/telegram/webhook" />
+            </div>
+          )}
+          <div className="fila-acciones">
+            <button type="button" className="btn" onClick={() => accion('probar')} disabled={trabajo}>Probar conexión</button>
+            {bot.activo
+              ? <button type="button" className="btn btn-peligro" onClick={() => accion('desactivar')} disabled={trabajo}>Desactivar bot</button>
+              : <button type="button" className="btn btn-primary" onClick={() => accion('activar', modoInput === 'webhook' ? { webhook_url: webhookUrl || null } : {})} disabled={trabajo}>Activar bot</button>}
+          </div>
+          <p className="muted">Última verificación: {bot.ultima_verificacion ? bot.ultima_verificacion.replace('T', ' ').slice(0, 19) : '—'}</p>
+        </div>
+      )}
+
+      {esDueno && (
+        <div className="card">
+          <h4>Cuentas vinculadas</h4>
+          {cuentas.length === 0 ? <p className="muted">Aún no hay cuentas vinculadas.</p> : (
+            <table className="table">
+              <thead><tr><th>Telegram</th><th>Usuario del panel</th><th>Desde</th><th></th></tr></thead>
+              <tbody>
+                {cuentas.map(c => (
+                  <tr key={c.id}>
+                    <td>{c.telegram_username ? '@' + c.telegram_username : c.telegram_id}</td>
+                    <td>{c.usuario}</td>
+                    <td>{c.vinculado_en ? c.vinculado_en.slice(0, 10) : '—'}</td>
+                    <td className="acciones">
+                      {c.activo
+                        ? <button type="button" className="btn btn-mini btn-peligro" onClick={() => desvincular(c.id)}>Desvincular</button>
+                        : <em className="muted">inactiva</em>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <form onSubmit={enviarNotificacion} className="fila-form" style={{ marginTop: '1rem' }}>
+            <div className="form-group">
+              <label>Enviar mensaje a una cuenta</label>
+              <select value={notifi.cuenta_id} onChange={e => setNotifi({ ...notifi, cuenta_id: e.target.value })} required>
+                <option value="">Elegir cuenta…</option>
+                {cuentas.filter(c => c.activo).map(c => (
+                  <option key={c.id} value={c.id}>{c.usuario} ({c.telegram_id})</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Texto</label>
+              <input value={notifi.texto} onChange={e => setNotifi({ ...notifi, texto: e.target.value })} required maxLength={3800} />
+            </div>
+            <button type="submit" className="btn btn-primary" disabled={trabajo}>Enviar</button>
+          </form>
+        </div>
+      )}
+
+      <div className="card">
+        <h4>Últimos mensajes</h4>
+        {mensajes.length === 0 ? <p className="muted">Sin mensajes todavía.</p> : (
+          <table className="table">
+            <thead><tr><th>Dirección</th><th>Tipo</th><th>Contenido</th><th>Fecha</th><th></th></tr></thead>
+            <tbody>
+              {mensajes.map(m => (
+                <tr key={m.id}>
+                  <td>{m.direccion === 'entrada' ? '→ EDÉN' : 'EDÉN →'}</td>
+                  <td>{m.tipo}</td>
+                  <td className="celda-texto">{m.archivo_nombre ? `📎 ${m.archivo_nombre}` : (m.texto || '—')}</td>
+                  <td>{m.creado_en ? m.creado_en.replace('T', ' ').slice(0, 19) : '—'}</td>
+                  <td>{m.entregado ? '' : <span className="badge badge-error">falló</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+
+  function desvincularConfirmado() {
+    /* la desvinculación propia se hace sobre la cuenta del usuario; el backend
+       requiere el id: lo obtenemos del listado si es dueño, si no usamos su estado */
+    apiFetch('/telegram/cuentas', { token: auth.token })
+      .then(async lista => {
+        const mia = lista.find(c => c.activo) || (lista.length === 1 ? lista[0] : null)
+        if (!mia) throw new Error('No hay vinculación activa que desvincular')
+        await apiFetch(`/telegram/cuentas/${mia.id}`, { method: 'DELETE', token: auth.token })
+        await cargarTodo()
+      })
+      .catch(err => setMsg({ tipo: 'error', texto: err.message }))
+  }
+}
+
+// ============================================================
 // Panel (dashboard con navegación de módulos)
 // ============================================================
 function Dashboard({ auth }) {
@@ -487,9 +733,10 @@ function Dashboard({ auth }) {
   useEffect(() => { cargarEmpresa() }, [])
 
   const esDueno = auth.user.rol === 'dueno'
-  const items = [
+   const items = [
     { id: 'resumen', nombre: 'Resumen' },
     { id: 'empresa', nombre: 'Empresa' },
+    { id: 'telegram', nombre: 'Telegram' },
     { id: 'cuenta', nombre: 'Mi cuenta' },
     ...(esDueno ? [{ id: 'usuarios', nombre: 'Usuarios' }] : []),
   ]
@@ -518,6 +765,7 @@ function Dashboard({ auth }) {
       <main className="panel-main">
         {vista === 'resumen' && <VistaResumen auth={auth} />}
         {vista === 'empresa' && <VistaEmpresa alGuardar={cargarEmpresa} auth={auth} empresa={empresa} />}
+        {vista === 'telegram' && <VistaTelegram auth={auth} />}
         {vista === 'cuenta' && <VistaCuenta auth={auth} />}
         {vista === 'usuarios' && <VistaUsuarios auth={auth} />}
       </main>

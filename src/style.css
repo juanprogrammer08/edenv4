@@ -313,6 +313,28 @@ input:focus, select:focus, textarea:focus {
   background: rgba(167, 139, 250, 0.08);
 }
 
+.badge-error {
+  color: var(--c-rojo);
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.codigo-grande {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  color: var(--c-azul);
+  font-family: 'Space Grotesk', var(--fuente);
+}
+
+.codigo-grande em {
+  display: block;
+  font-size: 0.8rem;
+  letter-spacing: 0;
+  color: var(--c-texto-2);
+  margin-top: 0.2rem;
+}
+
 /* ---------- Panel con sidebar ---------- */
 .panel {
   display: flex;
@@ -385,6 +407,24 @@ input:focus, select:focus, textarea:focus {
 
 .muted { color: var(--c-texto-2); }
 .nota { color: var(--c-texto-2); font-size: 0.88rem; }
+
+.fila-acciones {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.9rem 0;
+}
+
+.celda-texto {
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 820px) {
+  .celda-texto { max-width: 160px; }
+}
 
 /* ---------- Spinner ---------- */
 .spinner {
