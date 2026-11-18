@@ -343,6 +343,34 @@ input:focus, select:focus, textarea:focus {
   margin: 0.6rem 0;
 }
 
+.ia-msg {
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radio-mini);
+  margin-bottom: 0.7rem;
+  max-width: 92%;
+}
+
+.ia-msg-usuario {
+  background: rgba(92, 179, 255, 0.09);
+  border: 1px solid rgba(92, 179, 255, 0.25);
+  margin-left: auto;
+}
+
+.ia-msg-asistente {
+  background: rgba(167, 139, 250, 0.08);
+  border: 1px solid rgba(167, 139, 250, 0.25);
+}
+
+.ia-texto { white-space: pre-wrap; }
+
+.ia-composer {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-end;
+}
+
+.ia-input { flex: 1; }
+
 .codigo-grande {
   font-size: 1.6rem;
   font-weight: 700;

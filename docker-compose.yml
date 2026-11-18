@@ -24,6 +24,9 @@ services:
       TG_CODE_TTL_MINUTOS: ${TG_CODE_TTL_MINUTOS:-10}
       TG_MAX_ADJUNTO_MB: ${TG_MAX_ADJUNTO_MB:-20}
       TG_POLL_SECONDS: ${TG_POLL_SECONDS:-25}
+      IA_BASE_URL: ${IA_BASE_URL:-}
+      IA_MODEL: ${IA_MODEL:-}
+      IA_API_KEY: ${IA_API_KEY:-}
     volumes: [media:/app/media]
     depends_on:
       db: {condition: service_healthy}

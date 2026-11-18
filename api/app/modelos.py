@@ -118,6 +118,57 @@ class ConfigComercial(Base):
     actualizado_en = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+# ============================================================
+# NÚCLEO DE IA (FASE 5)
+# ============================================================
+
+class IAConfig(Base):
+    """Proveedor/modelo de IA configurado por el dueño desde el panel.
+    La clave se guarda CIFRADA (Fernet desde AUTH_SECRET) y nunca sale."""
+    __tablename__ = "ia_config"
+    id = Column(Integer, primary_key=True, index=True)
+    api_base = Column(String(300), default="")   # p. ej. OpenAI u OmniRoute (compatible OpenAI)
+    modelo = Column(String(120), default="")
+    api_key_cifrada = Column(Text, nullable=True)
+    activo = Column(Boolean, default=False)
+    estado_texto = Column(String(200), default="Sin configurar")
+    ultima_prueba = Column(DateTime, nullable=True)
+    actualizado_en = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class IAMensaje(Base):
+    """Historial del núcleo (por conversación del panel o de Telegram)."""
+    __tablename__ = "ia_mensajes"
+    id = Column(Integer, primary_key=True, index=True)
+    conversacion_id = Column(String(80), index=True, nullable=False)  # panel-<uid> | tg-<chat_id>
+    origen = Column(String(10), default="panel")  # panel | telegram
+    usuario_id = Column(Integer, nullable=True)
+    chat_id = Column(String(32), nullable=True)
+    rol = Column(String(20), nullable=False)  # usuario | asistente | sistema
+    agente = Column(String(30), nullable=True)  # comercial|financiero|proyectos|administrativo|seguridad
+    texto = Column(Text, nullable=False)
+    herramientas = Column(Text, default="")  # JSON: lista de herramientas usadas
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+
+class IAAccion(Base):
+    """Acción pendiente que exige AUTORIZACIÓN HUMANA antes de ejecutarse.
+    El núcleo nunca toca datos ni genera documentos sin este sí."""
+    __tablename__ = "ia_acciones"
+    id = Column(Integer, primary_key=True, index=True)
+    conversacion_id = Column(String(80), index=True, nullable=False)
+    usuario_id = Column(Integer, nullable=True)
+    chat_id = Column(String(32), nullable=True)
+    herramienta = Column(String(80), nullable=False)
+    argumentos = Column(Text, nullable=False)  # JSON
+    resumen = Column(Text, default="")
+    estado = Column(String(20), default="pendiente")  # pendiente|ejecutada|cancelada|fallo
+    resultado = Column(Text, nullable=True)
+    documento_id = Column(Integer, nullable=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+    resuelta_en = Column(DateTime, nullable=True)
+
+
 class Proyecto(Base):
     __tablename__ = "proyectos"
     id = Column(Integer, primary_key=True, index=True)

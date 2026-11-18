@@ -25,6 +25,7 @@ from app.seguridad import (
 from app.telegram import router as telegram_router, arrancar_telegram
 from app.plantillas import router as plantillas_router
 from app.comercial import router as comercial_router
+from app.ia_core import router as ia_router
 
 # Aviso sin romper el arranque en desarrollo
 from app.config import AUTH_SECRET
@@ -32,7 +33,7 @@ if AUTH_SECRET == "secret-key-change-me":
     print("ADVERTENCIA: AUTH_SECRET usa el valor por defecto. Defínelo en el entorno antes de producción.")
 
 app = FastAPI(
-    title="EDÉN — Asistente Empresarial Inteligente",
+    title="YERUZZA Empresarial Asist — Plataforma Empresarial Inteligente",
     version=APP_VERSION,
     root_path="/api",
 )
@@ -55,6 +56,7 @@ async def _al_arrancar():
 app.include_router(telegram_router)
 app.include_router(plantillas_router)
 app.include_router(comercial_router)
+app.include_router(ia_router)
 
 # ============================================================
 # ESQUEMAS Pydantic

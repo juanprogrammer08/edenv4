@@ -1,4 +1,6 @@
-# EDÉN — Asistente Empresarial Inteligente
+# YERUZZA Empresarial Asist — Plataforma Empresarial Inteligente
+
+(Producto renombrado por decisión del propietario: antes "EDÉN".)
 
 Plataforma para empresas de instalaciones técnicas, servicios eléctricos, redes
 y mantenimiento: panel web + bot de Telegram + documentos con las plantillas
@@ -111,6 +113,29 @@ propias de la empresa. Se desarrolla por fases (ver "Hoja de ruta" al final).
   clientes, servicios más solicitados. El Resumen del panel los consume.
 - Migración `002_cotizaciones_comercial`: columnas nuevas + numeración
   retroactiva + remapeo aceptada→aprobada (no destructiva).
+
+## FASE 5 — Núcleo de IA "Yeruzzza" (hecha, pendiente de la clave de proveedor)
+
+- **Configuración por panel (solo dueño)**: API base compatible OpenAI
+  (OpenAI directo u OmniRoute), modelo y clave — guardada **cifrada con
+  Fernet**, validable con "Probar conexión"; interruptor Encender/Apagar.
+- **Asistente Principal + agentes**: el núcleo enruta cada solicitud a una
+  especialidad (comercial, financiero, proyectos, administrativo, seguridad)
+  con clasificación del proveedor y respaldo por palabras clave; cada
+  respuesta queda amarrada al agente en el historial (ia_mensajes).
+- **Herramientas reales sobre la BD**: catálogo de precios, clientes,
+  cotizaciones, indicadores, proyectos — la IA NO inventa datos, los pide.
+- **Autorización humana obligatoria**: toda escritura (crear cliente,
+  crear cotización, generar PDF) se convierte en ACCIÓN PENDIENTE que el
+  usuario confirma (`/confirmar N` en Telegram o botón en el panel) o
+  cancela. Los límites del dueño (descuento/margen) aplican también a la IA.
+- **Telegram**: el texto libre de las cuentas vinculadas va directo al
+  núcleo; `/confirmar N` y `/cancelar N`; si la acción generó documento, el
+  bot lo envía al chat.
+- Degradación honesta: sin proveedor o sin clave, responde que falta
+  configuración — nunca simula inteligencia.
+- Fallback por variables: IA_BASE_URL / IA_MODEL / IA_API_KEY (el panel
+  tiene prioridad).
 
 ## Variables de entorno
 

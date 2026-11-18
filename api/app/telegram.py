@@ -173,21 +173,55 @@ async def _procesar_update(u: dict):
         else:
             _registrar_entrada(db, chat_id, cuenta, tipo="texto", texto=texto)
             if cuenta:
-                respuesta = (
-                    "Recibido. En esta fase (2) EDÉN atiende comandos, vinculación, adjuntos y "
-                    "notificaciones; la conversación inteligente con tus datos llega con EDÉN AI "
-                    "Core (fase 5). Usa /estado para ver tu vinculación."
-                )
+                # FASE 5: el texto libre va al núcleo Yeruzzza con el usuario vinculado
+                usuario_panel = db.execute(select(User).where(User.id == cuenta.usuario_id,
+                                                             User.is_active == True)).scalar_one_or_none()  # noqa: E712
+                if not usuario_panel:
+                    respuesta = "Tu cuenta está inactiva en el panel; pide al dueño que la reactivé."
+                else:
+                    try:
+                        from app.ia_core import _nucleo
+                        giro = await _nucleo(db, usuario_panel, texto, "telegram", chat_id)
+                        respuesta = giro["texto"]
+                    except Exception as e:
+                        respuesta = f"No pude procesar tu solicitud: {str(e)[:200]}"
             else:
                 respuesta = (
-                    f"No estás vinculado a EDÉN. Tu Telegram ID es {t_id}. "
+                    f"No estás vinculado a Yeruzzza. Tu Telegram ID es {t_id}. "
                     "Inicia sesión en el panel, sección Telegram, genera un código temporal y "
                     "envíame: /vincular CODIGO"
                 )
-        if token:
+        if token and respuesta:
             await _enviar_mensaje(token, chat_id, respuesta, db)
     finally:
         db.close()
+
+
+async def _enviar_documento(token: str, chat_id: str, ruta: str, nombre: str, db: Session) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=120) as cliente:
+            with open(ruta, "rb") as f:
+                resp = await cliente.post(
+                    f"{TG_API}/bot{token}/sendDocument",
+                    data={"chat_id": chat_id, "caption": nombre[:200]},
+                    files={"document": (nombre, f)},
+                )
+        try:
+            datos = resp.json()
+        except Exception:
+            datos = {"ok": False}
+        ok_envio = bool(datos.get("ok"))
+        db.add(TelegramMensaje(chat_id=chat_id, direccion="salida", tipo="documento",
+                               texto=nombre[:2000], archivo_ruta=ruta, entregado=ok_envio,
+                               error="" if ok_envio else f"HTTP {resp.status_code}"))
+        db.commit()
+        return ok_envio
+    except httpx.RequestError as e:
+        db.add(TelegramMensaje(chat_id=chat_id, direccion="salida", tipo="documento",
+                               texto=nombre[:2000], archivo_ruta=ruta, entregado=False,
+                               error=f"sin conexión con Telegram: {type(e).__name__}"))
+        db.commit()
+        return False
 
 
 def _registrar_entrada(db: Session, chat_id: str, cuenta, tipo: str, texto: str | None = None):
@@ -203,9 +237,9 @@ async def _comando(db: Session, texto: str, cuenta, chat_id: str, t_username: st
 
     if comando == "/start":
         if cuenta:
-            return f"EDÉN en línea. Estás vinculado como {cuenta.telegram_username or 'cuenta de Telegram'}. Usa /estado."
-        return ("Bienvenido a EDÉN. Para vincular tu Telegram: inicia sesión en el panel web, "
-                "sección Telegram, genera un código temporal y envíame /vincular CODIGO.")
+            return f"Yeruzzza en línea. Estás vinculado como {cuenta.telegram_username or 'cuenta de Telegram'}. Usa /estado o escríbeme lo que necesites."
+        return ("Bienvenido a Yeruzzza Empresarial Asist. Para vincular tu Telegram: inicia sesión en el "
+                "panel web, sección Telegram, genera un código temporal y envíame /vincular CODIGO.")
 
     if comando == "/vincular":
         if cuenta:
@@ -237,14 +271,50 @@ async def _comando(db: Session, texto: str, cuenta, chat_id: str, t_username: st
         usuario = db.execute(select(User).where(User.id == fila.usuario_id)).scalar_one_or_none()
         registrar_auditoria(db, "telegram_vinculacion", usuario=usuario,
                             detalle=f"chat {chat_id} vinculado a {usuario.username if usuario else fila.usuario_id}")
-        return (f"Vinculación lista, {usuario.username if usuario else ''}. EDÉN te enviará "
-                "notificaciones y recordatorios a este chat.")
+        return (f"Vinculación lista, {usuario.username if usuario else ''}. Yeruzzza te enviará "
+                "notificaciones, respuestas y documentos a este chat.")
+
+    if comando in ("/confirmar", "/cancelar"):
+        if not cuenta or not cuenta.usuario_id:
+            return "Solo las cuentas vinculadas pueden autorizar acciones."
+        if not argumento.isdigit():
+            return f"Uso: {comando} NUMERO — el número aparece con cada propuesta (p. ej. /confirmar 3)."
+        from app.modelos import IAAccion, Documento
+        from app.db import registrar_auditoria
+        accion = db.execute(select(IAAccion).where(IAAccion.id == int(argumento))).scalar_one_or_none()
+        if not accion or accion.conversacion_id != f"tg-{chat_id}":
+            return "Esa acción no existe o no pertenece a esta conversación."
+        if accion.estado != "pendiente":
+            return f"La acción ya está {accion.estado}."
+        usuario_panel = db.execute(select(User).where(User.id == cuenta.usuario_id,
+                                                      User.is_active == True)).scalar_one_or_none()  # noqa: E712
+        if not usuario_panel:
+            return "Tu cuenta del panel está inactiva."
+        if comando == "/cancelar":
+            accion.estado = "cancelada"
+            accion.resuelta_en = datetime.now()
+            db.commit()
+            registrar_auditoria(db, "ia_accion_cancelada", usuario=usuario_panel)
+            return "Propuesta cancelada. No se tocó nada."
+        # confirmar: ejecutar con AUTORIZACIÓN HUMANA explícita
+        from app.ia_core import _ejecutar_accion
+        ok, resultado, completo = _ejecutar_accion(db, accion, usuario_panel)[:3]
+        registrar_auditoria(db, "ia_accion_confirmada", usuario=usuario_panel,
+                            detalle=f"{accion.herramienta} via Telegram: {'OK' if ok else 'FALLO'}")
+        if not ok:
+            return f"Fallo al ejecutar: {str(completo.get('error') if isinstance(completo, dict) else resultado)[:300]}"
+        # si la acción produjo un documento, lo envía al chat
+        if token and isinstance(completo, dict) and completo.get("documento_id"):
+            ruta_doc = completo.get("archivo_pdf") if completo.get("pdf_ok") else completo.get("archivo_docx")
+            if ruta_doc and os.path.exists(ruta_doc):
+                await _enviar_documento(token, chat_id, ruta_doc, os.path.basename(ruta_doc), db)
+        return f"Autorizado y ejecutado: {accion.resumen}"
 
     if comando == "/estado":
         if not cuenta:
             return "No estás vinculado. Genera un código en el panel y envía /vincular CODIGO."
         cfg = _fila_config(db)
-        return (f"EDÉN Telegram — bot: {cfg.bot_username or 'sin configurar'} · estado: "
+        return (f"Yeruzzza Telegram — bot: {cfg.bot_username or 'sin configurar'} · estado: "
                 f"{cfg.estado_texto} · activo: {'sí' if cfg.activo else 'no'} · tu vinculación: "
                 f"{cuenta.telegram_username or cuenta.telegram_id} desde "
                 f"{cuenta.vinculado_en.date().isoformat() if cuenta.vinculado_en else '—'}")
@@ -259,8 +329,8 @@ async def _comando(db: Session, texto: str, cuenta, chat_id: str, t_username: st
                             detalle=f"chat {chat_id} desvinculado desde el bot")
         return "Vinculación desactivada. Puedes reactivarla con un código nuevo desde el panel."
 
-    return ("Comandos disponibles: /start, /vincular CODIGO, /estado, /desvincular. "
-            "También puedes enviarme fotos y documentos.")
+    return ("Comandos: /start, /vincular CODIGO, /estado, /desvincular, /confirmar N, /cancelar N. "
+            "También puedes pedirme cotizaciones y datos en lenguaje natural, o enviarme fotos y documentos.")
 
 
 async def _guardar_adjunto(token: str, mensaje: dict, tipo: str, chat_id: str, cuenta, db: Session) -> str:

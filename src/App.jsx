@@ -2,6 +2,7 @@ import React, { useState, useEffect, createContext, useContext } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { VistaPlantillas } from './Plantillas.jsx'
 import { VistaCotizaciones, VistaClientes, VistaServicios } from './Comercial.jsx'
+import { VistaAI } from './IA.jsx'
 
 // ============================================================
 // API helper
@@ -79,9 +80,9 @@ function LoginPage() {
     <div className="auth-wrap">
       <div className="auth-card">
         <div className="auth-logo">
-          <span className="auth-logo-mark">E</span>
+          <span className="auth-logo-mark">Y</span>
           <div>
-            <h2>EDÉN</h2>
+            <h2>YERUZZA Empresarial Asist</h2>
             <p className="auth-sub">Asistente Empresarial Inteligente</p>
           </div>
         </div>
@@ -745,6 +746,7 @@ function Dashboard({ auth }) {
   const esDueno = auth.user.rol === 'dueno'
    const items = [
     { id: 'resumen', nombre: 'Resumen' },
+    { id: 'ia', nombre: 'Yeruzzza AI' },
     { id: 'cotizaciones', nombre: 'Cotizaciones' },
     { id: 'clientes', nombre: 'Clientes' },
     { id: 'servicios', nombre: 'Servicios' },
@@ -759,8 +761,8 @@ function Dashboard({ auth }) {
     <div className="panel">
       <aside className="sidebar">
         <div className="sidebar-marca">
-          <span className="auth-logo-mark">E</span>
-          <strong>EDÉN</strong>
+          <span className="auth-logo-mark">Y</span>
+          <strong>YERUZZA</strong>
         </div>
         <nav>
           {items.map(t => (
@@ -778,6 +780,7 @@ function Dashboard({ auth }) {
       </aside>
       <main className="panel-main">
         {vista === 'resumen' && <VistaResumen auth={auth} />}
+        {vista === 'ia' && <VistaAI auth={auth} />}
         {vista === 'empresa' && <VistaEmpresa alGuardar={cargarEmpresa} auth={auth} empresa={empresa} />}
         {vista === 'telegram' && <VistaTelegram auth={auth} />}
         {vista === 'plantillas' && <VistaPlantillas auth={auth} />}
