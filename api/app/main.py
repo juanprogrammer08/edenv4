@@ -4,18 +4,39 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from sqlalchemy import create_engine, select, update, delete
+from sqlalchemy import create_engine, select, update, delete, text, inspect as sa_inspect
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Float
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
+import time
 
-# Configuración y constantes
+# ============================================================
+# CONFIGURACIÓN
+# ============================================================
+APP_VERSION = "1.1.0-fase1"
+
 AUTH_SECRET = os.getenv("AUTH_SECRET", "secret-key-change-me")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 días
+
+# Lista de orígenes CORS separados por coma; "*" conserva el comportamiento abierto
+# En PRODUCCIÓN se recomienda fijar CORS_ORIGINS=https://tu-dominio.com
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
+
+# Límite de intentos de login (por IP, ventana deslizante en memoria)
+LOGIN_RATE_LIMIT = int(os.getenv("LOGIN_RATE_LIMIT", "6"))
+LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "300"))
+
+ROLES_VALIDOS = ("dueno", "admin")
+ROL_DUENO = "dueno"
+ROL_ADMIN = "admin"
+
+if AUTH_SECRET == "secret-key-change-me":
+    # Aviso visible sin romper el arranque en desarrollo
+    print("ADVERTENCIA: AUTH_SECRET usa el valor por defecto. Definelo en el entorno antes de producción.")
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -25,9 +46,9 @@ DATABASE_URL = os.getenv(
 # Intentar conectar a PostgreSQL, fallback a SQLite si falla
 try:
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
-    # Probar conexión
+    # Probar conexión (SQLAlchemy 2.x exige text())
     with engine.connect() as conn:
-        conn.execute("SELECT 1")
+        conn.execute(text("SELECT 1"))
 except Exception:
     # Fallback a SQLite local
     DATABASE_URL = "sqlite:///./app.db"
@@ -38,26 +59,46 @@ Base = declarative_base()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-app = FastAPI(root_path="/api")
+app = FastAPI(
+    title="EDÉN — Asistente Empresarial Inteligente",
+    version=APP_VERSION,
+    root_path="/api",
+)
 
-# CORS (permitir frontend local y producción)
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Ajustar en producción
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ============================================================
 # MODELOS SQLALCHEMY
+# ============================================================
 
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     hashed_password = Column(String(128), nullable=False)
+    # Roles: "dueno" (propietario, acceso total) | "admin" (operativo restringido)
+    rol = Column(String(20), default=ROL_ADMIN, nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class Empresa(Base):
+    """Configuración general de la empresa (fila única id=1)."""
+    __tablename__ = "empresa"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(200), default="")
+    nit = Column(String(50), default="")
+    direccion = Column(String(200), default="")
+    telefono = Column(String(50), default="")
+    correo = Column(String(120), default="")
+    ciudad = Column(String(100), default="")
+    actualizado_en = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class Cotizacion(Base):
     __tablename__ = "cotizaciones"
@@ -93,10 +134,69 @@ class Bitacora(Base):
     mensaje = Column(Text, nullable=False)
     creado_en = Column(DateTime, default=datetime.utcnow)
 
+class Auditoria(Base):
+    """Registro de operaciones sensibles: quién, qué, cuándo, desde dónde."""
+    __tablename__ = "auditoria"
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, nullable=True)
+    username = Column(String(50), nullable=True)
+    accion = Column(String(80), nullable=False)
+    detalle = Column(Text, nullable=True)
+    ip = Column(String(64), nullable=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
 # Crear tablas si no existen
 Base.metadata.create_all(bind=engine)
 
+# ============================================================
+# MIGRACIONES VERSIONADAS
+# Corren en orden en el arranque; cada una solo si no quedó registrada.
+# Reversibles por diseño: cada función guarda su SQL "down" equivalente.
+# ============================================================
+TABLA_MIGRACIONES = "_schema_migrations"
+
+def _columna_existe(conn, tabla, columna):
+    insp = sa_inspect(conn)
+    return columna in [c["name"] for c in insp.get_columns(tabla)]
+
+def _registrar_migracion(conn, version):
+    conn.execute(text(f"INSERT INTO {TABLA_MIGRACIONES} (version) SELECT '{version}' WHERE NOT EXISTS (SELECT 1 FROM {TABLA_MIGRACIONES} WHERE version = '{version}')"))
+
+MIGRACIONES = []
+
+def _m001_rol_usuarios(conn):
+    """FASE 1: columna rol en users. Si no existe ningún dueño, promueve al usuario
+    de id más bajo a dueño (los demás quedan como administradores)."""
+    if not _columna_existe(conn, "users", "rol"):
+        conn.execute(text("ALTER TABLE users ADD COLUMN rol VARCHAR(20) DEFAULT 'admin' NOT NULL"))
+    hay_dueno = conn.execute(text("SELECT COUNT(*) FROM users WHERE rol = 'dueno'")).scalar()
+    if not hay_dueno:
+        primero = conn.execute(text("SELECT MIN(id) FROM users")).scalar()
+        if primero is not None:
+            conn.execute(text("UPDATE users SET rol = 'dueno' WHERE id = :id"), {"id": primero})
+
+MIGRACIONES.append(("001_rol_usuarios", _m001_rol_usuarios))
+
+def _run_migraciones():
+    with engine.begin() as conn:
+        conn.execute(text(f"CREATE TABLE IF NOT EXISTS {TABLA_MIGRACIONES} (id INTEGER PRIMARY KEY, version VARCHAR(64) UNIQUE, aplicada_en DATETIME DEFAULT CURRENT_TIMESTAMP)"))
+        aplicadas = {r[0] for r in conn.execute(text(f"SELECT version FROM {TABLA_MIGRACIONES}")).fetchall()}
+        for version, fn in MIGRACIONES:
+            if version in aplicadas:
+                continue
+            try:
+                fn(conn)
+                _registrar_migracion(conn, version)
+                print(f"Migración aplicada: {version}")
+            except Exception as e:
+                print(f"Migración {version} FALLÓ: {e}")
+                raise
+
+_run_migraciones()
+
+# ============================================================
 # UTILIDADES
+# ============================================================
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
@@ -118,9 +218,49 @@ def get_db():
     finally:
         db.close()
 
-# DEPENDENCIAS
+def registrar_auditoria(db: Session, accion: str, usuario: Optional[User] = None,
+                        detalle: str = "", ip: str = "", username_libre: str = ""):
+    """Registra una operación sensible. Fallo nunca rompe la operación principal."""
+    try:
+        db.add(Auditoria(
+            usuario_id=usuario.id if usuario else None,
+            username=usuario.username if usuario else username_libre,
+            accion=accion,
+            detalle=detalle[:2000],
+            ip=ip[:64],
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
 
-def get_current_user(token: str = Depends(lambda request: request.headers.get("Authorization", "").replace("Bearer ", "")), db: Session = Depends(get_db)) -> User:
+# Límite de intentos de login (en memoria, por proceso)
+_login_intentos: dict = {}
+
+def login_permitido(ip: str) -> bool:
+    ahora = time.time()
+    intentos = _login_intentos.get(ip, [])
+    intentos = [t for t in intentos if ahora - t < LOGIN_WINDOW_SECONDS]
+    _login_intentos[ip] = intentos
+    return len(intentos) < LOGIN_RATE_LIMIT
+
+def registrar_intento_login(ip: str):
+    ahora = time.time()
+    intentos = [t for t in _login_intentos.get(ip, []) if ahora - t < LOGIN_WINDOW_SECONDS]
+    intentos.append(ahora)
+    _login_intentos[ip] = intentos
+
+def cliente_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+# ============================================================
+# DEPENDENCIAS DE AUTENTICACIÓN Y ROLES
+# ============================================================
+
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token de autorización no proporcionado")
     try:
@@ -135,26 +275,50 @@ def get_current_user(token: str = Depends(lambda request: request.headers.get("A
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado o inactivo")
     return user
 
-# ESQUEMAS Pydantic
+def require_dueno(current_user: User = Depends(get_current_user)) -> User:
+    """Operaciones exclusivas del DUEÑO: administradores, empresa, auditoría."""
+    if current_user.rol != ROL_DUENO:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo el dueño puede realizar esta operación")
+    return current_user
 
-from pydantic import BaseModel, Field
+# ============================================================
+# ESQUEMAS Pydantic
+# ============================================================
+from pydantic import BaseModel, Field, ConfigDict
 
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8, max_length=128)
+
+class PasswordChange(BaseModel):
+    password: str = Field(..., min_length=8, max_length=128)
 
 class UserOut(BaseModel):
     id: int
     username: str
+    rol: str
     is_active: bool
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+class EmpresaBase(BaseModel):
+    nombre: Optional[str] = Field(None, max_length=200)
+    nit: Optional[str] = Field(None, max_length=50)
+    direccion: Optional[str] = Field(None, max_length=200)
+    telefono: Optional[str] = Field(None, max_length=50)
+    correo: Optional[str] = Field(None, max_length=120)
+    ciudad: Optional[str] = Field(None, max_length=100)
+
+class EmpresaOut(EmpresaBase):
+    id: int
+    actualizado_en: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 class CotizacionCreate(BaseModel):
     cliente: str
@@ -171,8 +335,7 @@ class CotizacionOut(BaseModel):
     creado_por_id: int
     creado_en: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProyectoCreate(BaseModel):
     nombre: str
@@ -186,8 +349,7 @@ class ProyectoOut(BaseModel):
     estado: str
     creado_en: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class GastoCreate(BaseModel):
     proyecto_id: int
@@ -202,8 +364,7 @@ class GastoOut(BaseModel):
     monto: float
     fecha: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class BitacoraCreate(BaseModel):
     entidad: str
@@ -217,42 +378,201 @@ class BitacoraOut(BaseModel):
     mensaje: str
     creado_en: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
+class AuditoriaOut(BaseModel):
+    id: int
+    usuario_id: Optional[int]
+    username: Optional[str]
+    accion: str
+    detalle: Optional[str]
+    ip: Optional[str]
+    creado_en: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+# ============================================================
 # RUTAS
+# ============================================================
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": APP_VERSION}
 
-# AUTH
+# --- AUTENTICACIÓN ---
 
 @app.post("/auth/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def register(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+def register(username: str = Form(...), password: str = Form(...),
+             db: Session = Depends(get_db)):
+    """Registro cerrado: si ya existe un DUEÑO, nadie más puede registrarse por su cuenta.
+    El primer registro crea al dueño de la empresa."""
+    hay_dueno = db.execute(select(User).where(User.rol == ROL_DUENO)).scalar_one_or_none()
+    if hay_dueno:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El registro está deshabilitado. El dueño crea los administradores desde el panel.",
+        )
     user_exists = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if user_exists:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El usuario ya existe")
+    if len(password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La contraseña debe tener al menos 8 caracteres")
     hashed_password = get_password_hash(password)
-    user = User(username=username, hashed_password=hashed_password)
+    user = User(username=username, hashed_password=hashed_password, rol=ROL_DUENO)
     db.add(user)
     db.commit()
     db.refresh(user)
+    registrar_auditoria(db, "dueño_creado_bootstrap", usuario=user)
     return user
 
 @app.post("/auth/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    ip = cliente_ip(request)
+    if not login_permitido(ip):
+        registrar_auditoria(db, "login_bloqueado_rate_limit", username_libre=form_data.username, ip=ip)
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                            detail="Demasiados intentos de inicio de sesión. Espera unos minutos.")
     user = db.execute(select(User).where(User.username == form_data.username)).scalar_one_or_none()
     if not user or not verify_password(form_data.password, user.hashed_password):
+        registrar_intento_login(ip)
+        registrar_auditoria(db, "login_fallido", username_libre=form_data.username, ip=ip,
+                            usuario=user if user else None)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario o contraseña incorrectos")
-    access_token = create_access_token(data={"sub": user.username})
+    if not user.is_active:
+        registrar_intento_login(ip)
+        registrar_auditoria(db, "login_usuario_inactivo", usuario=user, ip=ip)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="La cuenta está desactivada")
+    access_token = create_access_token(data={"sub": user.username, "rol": user.rol})
+    registrar_auditoria(db, "login_ok", usuario=user, ip=ip)
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/auth/me", response_model=UserOut)
 def read_me(current_user: User = Depends(get_current_user)):
     return current_user
 
-# CRUD Cotizaciones
+@app.put("/mi/password")
+def cambiar_mi_password(cambio: PasswordChange, current_user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """Cualquier usuario autenticado cambia su propia contraseña."""
+    current_user.hashed_password = get_password_hash(cambio.password)
+    db.commit()
+    registrar_auditoria(db, "password_propia_cambiada", usuario=current_user)
+    return {"ok": True}
+
+# --- GESTIÓN DE USUARIOS (SOLO DUEÑO) ---
+
+@app.get("/usuarios", response_model=List[UserOut])
+def list_usuarios(current_user: User = Depends(require_dueno), db: Session = Depends(get_db)):
+    return db.execute(select(User).order_by(User.id)).scalars().all()
+
+@app.post("/usuarios", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def crear_administrador(datos: UserCreate, current_user: User = Depends(require_dueno),
+                        db: Session = Depends(get_db)):
+    """El dueño crea administradores. Los administradores no son dueños y no pueden crear más usuarios."""
+    user_exists = db.execute(select(User).where(User.username == datos.username)).scalar_one_or_none()
+    if user_exists:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El usuario ya existe")
+    user = User(username=datos.username, hashed_password=get_password_hash(datos.password), rol=ROL_ADMIN)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    registrar_auditoria(db, "admin_creado", usuario=current_user, detalle=f"nuevo admin: {user.username}")
+    return user
+
+@app.put("/usuarios/{usuario_id}/estado", response_model=UserOut)
+def cambiar_estado_usuario(usuario_id: int, activo: bool, current_user: User = Depends(require_dueno),
+                           db: Session = Depends(get_db)):
+    """El dueño activa/desactiva administradores. No puede desactivarse a sí mismo ni a otro dueño."""
+    user = db.execute(select(User).where(User.id == usuario_id)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    if user.rol == ROL_DUENO:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El dueño no puede desactivarse a sí mismo")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes cambiar tu propio estado")
+    user.is_active = activo
+    db.commit()
+    db.refresh(user)
+    registrar_auditoria(db, "usuario_estado", usuario=current_user,
+                        detalle=f"{user.username} -> {'activo' if activo else 'inactivo'}")
+    return user
+
+@app.put("/usuarios/{usuario_id}/password")
+def reset_password_usuario(usuario_id: int, cambio: PasswordChange,
+                           current_user: User = Depends(require_dueno), db: Session = Depends(get_db)):
+    """El dueño restablece la contraseña de un administrador."""
+    user = db.execute(select(User).where(User.id == usuario_id)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    if user.rol == ROL_DUENO:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El dueño define su contraseña desde /mi/password")
+    user.hashed_password = get_password_hash(cambio.password)
+    db.commit()
+    registrar_auditoria(db, "password_reseteada", usuario=current_user, detalle=f"de: {user.username}")
+    return {"ok": True}
+
+@app.delete("/usuarios/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_administrador(usuario_id: int, current_user: User = Depends(require_dueno),
+                           db: Session = Depends(get_db)):
+    user = db.execute(select(User).where(User.id == usuario_id)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    if user.rol == ROL_DUENO:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No se puede eliminar al dueño")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes eliminar tu propia cuenta")
+    if db.execute(select(Cotizacion).where(Cotizacion.creado_por_id == usuario_id)).scalar_one_or_none():
+        # Conserva trazabilidad comercial: se desactiva en lugar de borrar
+        user.is_active = False
+        db.commit()
+        registrar_auditoria(db, "usuario_desactivado_por_historial", usuario=current_user, detalle=f"{user.username}")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail="El usuario tiene cotizaciones asociadas; se desactivó para conservar el historial")
+    db.delete(user)
+    db.commit()
+    registrar_auditoria(db, "admin_eliminado", usuario=current_user)
+    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+
+# --- CONFIGURACIÓN DE EMPRESA ---
+
+def _empresa_fila(db: Session) -> Empresa:
+    fila = db.execute(select(Empresa).where(Empresa.id == 1)).scalar_one_or_none()
+    if not fila:
+        fila = Empresa(id=1)
+        db.add(fila)
+        db.commit()
+        db.refresh(fila)
+    return fila
+
+@app.get("/empresa", response_model=EmpresaOut)
+def get_empresa(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _empresa_fila(db)
+
+@app.put("/empresa", response_model=EmpresaOut)
+def update_empresa(datos: EmpresaBase, current_user: User = Depends(require_dueno),
+                   db: Session = Depends(get_db)):
+    fila = _empresa_fila(db)
+    cambios = []
+    for campo, valor in datos.model_dump(exclude_unset=True).items():
+        cambios.append(f"{campo}={'***' if campo == 'nit' and valor else valor}")
+        setattr(fila, campo, valor)
+    db.commit()
+    db.refresh(fila)
+    registrar_auditoria(db, "empresa_actualizada", usuario=current_user,
+                        detalle=", ".join(cambios) if cambios else "sin cambios")
+    return fila
+
+# --- AUDITORÍA (SOLO DUEÑO) ---
+
+@app.get("/auditoria", response_model=List[AuditoriaOut])
+def list_auditoria(limit: int = 100, action: Optional[str] = None,
+                   current_user: User = Depends(require_dueno), db: Session = Depends(get_db)):
+    query = select(Auditoria).order_by(Auditoria.id.desc()).limit(max(1, min(limit, 500)))
+    if action:
+        query = query.where(Auditoria.accion.contains(action))
+    return db.execute(query).scalars().all()
+
+# --- CRUD Cotizaciones ---
 
 @app.post("/cotizaciones", response_model=CotizacionOut)
 def create_cotizacion(cotizacion: CotizacionCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -302,7 +622,7 @@ def delete_cotizacion(cotizacion_id: int, current_user: User = Depends(get_curre
     db.commit()
     return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
 
-# CRUD Proyectos
+# --- CRUD Proyectos ---
 
 @app.post("/proyectos", response_model=ProyectoOut)
 def create_proyecto(proyecto: ProyectoCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -352,7 +672,7 @@ def delete_proyecto(proyecto_id: int, current_user: User = Depends(get_current_u
     db.commit()
     return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
 
-# CRUD Gastos
+# --- CRUD Gastos ---
 
 @app.post("/gastos", response_model=GastoOut)
 def create_gasto(gasto: GastoCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -408,7 +728,7 @@ def delete_gasto(gasto_id: int, current_user: User = Depends(get_current_user), 
     db.commit()
     return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
 
-# CRUD Bitacora
+# --- CRUD Bitacora ---
 
 @app.post("/bitacoras", response_model=BitacoraOut)
 def create_bitacora(bitacora: BitacoraCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):

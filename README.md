@@ -1,161 +1,84 @@
-# EDÉN — Asistente Empresarial Inteligente para Gestión Integral
+# EDÉN — Asistente Empresarial Inteligente
 
-Este proyecto es una aplicación full-stack para la gestión integral de empresas de instalación y servicios técnicos. Combina un frontend SPA en React 18 con un backend API en FastAPI, autenticación JWT, persistencia en PostgreSQL (con fallback a SQLite) y despliegue en contenedores Docker coordinados con docker-compose para Dokploy.
+Plataforma para empresas de instalaciones técnicas, servicios eléctricos, redes
+y mantenimiento: panel web + bot de Telegram + documentos con las plantillas
+propias de la empresa. Se desarrolla por fases (ver "Hoja de ruta" al final).
 
----
+## Arquitectura
 
-## Contenido del repositorio
+- **api/**: backend FastAPI (SQLAlchemy 2.x sincrónico, JWT, bcrypt).
+  PostgreSQL en producción; fallback honesto a SQLite para desarrollo local.
+- **src/**: SPA React 18 + react-router-dom.
+- **Docker Compose**: db (PostgreSQL 16) + api + web (nginx sirve la SPA y
+  invierte /api al api).
 
-- **api/**: Código backend FastAPI con autenticación, CRUD y persistencia.
-- **src/**: Código frontend React 18 con rutas, login/registro y guardia de rutas.
-- **docker-compose.yml**: Orquestación de servicios db, api y web.
-- **web.Dockerfile**: Dockerfile multi-stage para frontend React + nginx.
-- **api/Dockerfile**: Dockerfile para backend FastAPI.
-- **nginx.conf**: Configuración nginx para servir SPA y proxy a API.
-- **package.json** y **vite.config.js**: Configuración frontend.
-- **README.md**: Esta documentación.
+## Ejecución local (desarrollo)
 
----
+    cd api
+    python -m venv venv          # una sola vez
+    venv\Scripts\activate        # Windows
+    pip install -r requirements.txt
+    uvicorn app.main:app --port 8000
 
-## Requisitos previos
+    # en otra terminal, en la raíz:
+    npm install                 # una sola vez
+    npm run dev                 # SPA en http://localhost:3000 (proxy /api → 8000)
 
-- Docker y docker-compose instalados en su sistema.
-- Acceso a terminal / consola.
-- Para desarrollo local: Node.js 18+ y npm 9+.
+## Pruebas
 
----
+    cd api
+    DATABASE_URL=sqlite:///./test_fase1.db python -m uvicorn app.main:app --port 8421
+    python test_fase1.py        # 26 pruebas E2E de la fase 1
 
-## Uso local (desarrollo y pruebas)
+## Seguridad (FASE 1)
 
-### 1. Clonar el repositorio
+- Roles: **dueño** (acceso total) y **administrador** (operativo restringido).
+- Registro cerrado: el primer registro crea al dueño; después queda bloqueado y
+  solo el dueño crea administradores desde el panel.
+- El dueño crea/desactiva/elimina/establece contraseñas de administradores.
+- Auditoría en la tabla `auditoria` (login ok/fallido, gestión de usuarios,
+  cambios de empresa, rate limit). Consulta: `GET /api/auditoria` (solo dueño).
+- Rate limit de login (6 intentos / 300 s por IP, configurable por env).
+- JWT HS256 + bcrypt. El token incluye el rol.
+- El admin no puede: listar usuarios, consultar auditoría, editar empresa,
+  crear usuarios, ni tocar al dueño.
+- Contraseñas de usuario mínimo 8 caracteres.
 
-```bash
-git clone <url-del-repositorio>
-cd <nombre-del-repositorio>
-```
+## Variables de entorno
 
-### 2. Backend: instalar dependencias y ejecutar localmente (opcional)
+| Variable | Default | Uso |
+|---|---|---|
+| AUTH_SECRET | — (requerida en producción) | clave firma JWT |
+| DATABASE_URL | sqlite:///./app.db | cadena PostgreSQL |
+| CORS_ORIGINS | * | lista separada por comas en producción |
+| LOGIN_RATE_LIMIT | 6 | intentos de login por ventana |
+| LOGIN_WINDOW_SECONDS | 300 | ventana del rate limit |
 
-```bash
-cd api
-python3 -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+## Rutas API
 
-La API estará disponible en: http://localhost:8000/api
+| Ruta | Métodos | Acceso |
+|---|---|---|
+| /auth/register | POST | público (solo para crear al dueño inicial) |
+| /auth/login | POST | público (rate limit) |
+| /auth/me | GET | autenticado |
+| /mi/password | PUT | autenticado (contraseña propia) |
+| /usuarios | GET/POST | solo dueño |
+| /usuarios/{id}/estado | PUT | solo dueño (no aplica al dueño) |
+| /usuarios/{id}/password | PUT | solo dueño (no aplica al dueño) |
+| /usuarios/{id} | DELETE | solo dueño (nunca el dueño) |
+| /empresa | GET | autenticado |
+| /empresa | PUT | solo dueño |
+| /auditoria | GET | solo dueño |
+| /cotizaciones, /proyectos, /gastos, /bitacoras | CRUD | autenticado |
 
-### 3. Frontend: instalar dependencias y ejecutar localmente (opcional)
+## Hoja de ruta (spec maestra)
 
-```bash
-cd ../
-npm install
-npm run dev
-```
+1. **FASE 1 — Fundamentos (esta):** roles, empresa, seguridad, auditoría. ✅
+2. **FASE 2 — Telegram:** bot, vinculación de usuarios por código temporal, webhooks, envío de PDF.
+3. **FASE 3 — Plantillas:** DOCX + HTML + variables `{{...}}`, versiones, PDF.
+4. **FASE 4 — Comercial:** catálogo, clientes, cotizaciones con ítems, PDF.
+5. **FASE 5 — IA:** EDÉN AI Core, agentes, herramientas reales sobre la BD.
+6. **FASE 6 — Operaciones:** proyectos, gastos, agenda, documentos, bóveda.
+7. **FASE 7 —** reportes, auditoría completa, pruebas integrales.
 
-La SPA React estará disponible en: http://localhost:5173
-
-### 4. Ejecutar con Docker Compose (recomendado)
-
-Desde la raíz del proyecto:
-
-```bash
-docker-compose up --build
-```
-
-Esto levantará tres servicios:
-
-- **db**: PostgreSQL en el puerto 5432 interno.
-- **api**: Backend FastAPI en http://localhost:8000/api
-- **web**: Frontend React servido por nginx en http://localhost:8080
-
-La aplicación completa estará accesible en http://localhost:8080
-
----
-
-## Usuarios de prueba
-
-Para facilitar pruebas, puede usar estas credenciales de usuario precreadas:
-
-| Usuario  | Contraseña | Rol          |
-|----------|------------|--------------|
-| admin    | admin123   | Administrador|
-| operador | oper123    | Operador     |
-| tecnico  | tecn123    | Técnico      |
-
----
-
-## Autenticación
-
-- El frontend presenta pantallas de login y registro.
-- El backend usa JWT para autenticación.
-- El token JWT se guarda en `localStorage` y se envía en cada petición API en el header:
-
-```
-Authorization: Bearer <token>
-```
-
-- Las rutas protegidas requieren token válido; las rutas `/api/auth/*` y `/api/health` son públicas.
-
----
-
-## Rutas API principales
-
-| Ruta                | Método | Descripción                          | Autenticación |
-|---------------------|--------|------------------------------------|---------------|
-| `/api/auth/register` | POST   | Registrar nuevo usuario             | No            |
-| `/api/auth/login`    | POST   | Login y obtención de token JWT      | No            |
-| `/api/auth/me`       | GET    | Obtener datos del usuario logueado | Sí            |
-| `/api/health`        | GET    | Estado de salud del backend         | No            |
-| `/api/...`           | CRUD   | Rutas protegidas para gestión       | Sí            |
-
----
-
-## Construcción y despliegue para Dokploy
-
-### 1. Construir imágenes Docker
-
-```bash
-docker-compose build
-```
-
-### 2. Levantar servicios en Dokploy
-
-- Suba las imágenes construidas a su registro Docker (Docker Hub, GitHub Container Registry, etc.).
-- Configure Dokploy para desplegar con el archivo `docker-compose.yml`.
-- Asigne el dominio o subdominio deseado al puerto **8080** del servicio `web` para que la SPA sea accesible públicamente.
-
-### 3. Configuración de variables de entorno
-
-En Dokploy, configure las siguientes variables para el servicio `api`:
-
-- `AUTH_SECRET`: Clave secreta para firmar JWT (cadena segura y privada).
-- `DATABASE_URL`: URL de conexión a base de datos PostgreSQL, ejemplo:
-
-```
-postgresql+psycopg://studio:studio@db:5432/producto
-```
-
-Si PostgreSQL no está disponible, el backend usará SQLite local `./app.db` como fallback.
-
----
-
-## Notas importantes
-
-- El frontend siempre consume la API bajo el prefijo `/api`.
-- El servidor nginx sirve la SPA y redirige `/api` al backend.
-- El backend FastAPI monta todas sus rutas bajo `/api`.
-- El login y registro envían datos en formato `application/x-www-form-urlencoded`.
-- El proyecto está preparado para producción con Docker y Dokploy.
-- Para desarrollo, puede usar SQLite local sin necesidad de PostgreSQL.
-
----
-
-## Contacto y soporte
-
-Para dudas, reportes de errores o sugerencias, contacte con el equipo de YERUZZA Studio.
-
----
-
-¡Gracias por usar EDÉN, su asistente empresarial inteligente!
+Cada fase se entrega completa y verificada; nada se marca como terminado sin pruebas.

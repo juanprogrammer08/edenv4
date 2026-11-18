@@ -1,32 +1,59 @@
 import React, { useState, useEffect, createContext, useContext } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 
-// Contexto de autenticación para compartir estado y funciones
+// ============================================================
+// API helper
+// ============================================================
+const API = '/api'
+
+async function apiFetch(path, { method = 'GET', body = null, token = null, form = null } = {}) {
+  const headers = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+  let payload = body
+  if (form) {
+    headers['Content-Type'] = 'application/x-www-form-urlencoded'
+    payload = new URLSearchParams(form).toString()
+  } else if (body !== null) {
+    headers['Content-Type'] = 'application/json'
+    payload = JSON.stringify(body)
+  }
+  const res = await fetch(`/api${path}`, { method, headers, body: payload })
+  const text = await res.text()
+  let data = null
+  try { data = text ? JSON.parse(text) : null } catch { data = text }
+  if (!res.ok) {
+    const detail = data?.detail || data?.error || `Error ${res.status}`
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+  }
+  return data
+}
+
+// ============================================================
+// Contexto de autenticación
+// ============================================================
 const AuthContext = createContext(null)
 
-// Hook para usar el contexto de autenticación
 export function useAuth() {
   return useContext(AuthContext)
 }
 
-// Componente que protege rutas privadas, redirigiendo a login si no hay token válido
 function PrivateRoute({ children }) {
   const auth = useAuth()
   const location = useLocation()
-
   if (!auth.user) {
-    // Redirige a login guardando la ruta original para volver luego
     return <Navigate to="/login" state={{ from: location }} replace />
   }
-
   return children
 }
 
-// Página de Login
+// ============================================================
+// Login
+// ============================================================
 function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
+  const [enviando, setEnviando] = useState(false)
   const auth = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -35,77 +62,83 @@ function LoginPage() {
   async function handleSubmit(e) {
     e.preventDefault()
     setError(null)
+    setEnviando(true)
     try {
       await auth.login(username, password)
       navigate(from, { replace: true })
     } catch (err) {
-      setError('Credenciales incorrectas')
+      setError(err.message || 'Credenciales incorrectas')
+    } finally {
+      setEnviando(false)
     }
   }
 
   return (
-    <div className="auth-container">
-      <h2>Iniciar sesión</h2>
-      <form onSubmit={handleSubmit} className="auth-form">
-        <label>
-          Usuario
-          <input
-            type="text"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            required
-            autoComplete="username"
-          />
-        </label>
-        <label>
-          Contraseña
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-            autoComplete="current-password"
-          />
-        </label>
-        {error && <p className="error">{error}</p>}
-        <button type="submit">Entrar</button>
-      </form>
-      <p>
-        ¿No tienes cuenta? <a href="/register">Regístrate</a>
-      </p>
+    <div className="auth-wrap">
+      <div className="auth-card">
+        <div className="auth-logo">
+          <span className="auth-logo-mark">E</span>
+          <div>
+            <h2>EDÉN</h2>
+            <p className="auth-sub">Asistente Empresarial Inteligente</p>
+          </div>
+        </div>
+        <form onSubmit={handleSubmit} className="auth-form">
+          <div className="form-group">
+            <label>Usuario</label>
+            <input
+              type="text"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              autoFocus
+              required
+              autoComplete="username"
+            />
+          </div>
+          <div className="form-group">
+            <label>Contraseña</label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+            />
+          </div>
+          {error && <div className="alert alert-error">{error}</div>}
+          <button type="submit" disabled={enviando} className="btn btn-primary btn-block">
+            {enviando ? 'Verificando…' : 'Entrar'}
+          </button>
+        </form>
+        <p className="auth-alt">
+          ¿Primera vez? <a href="/register">Configura a la dueña o el dueño</a>
+        </p>
+      </div>
     </div>
   )
 }
 
-// Página de Registro
+// ============================================================
+// Registro (solo bootstrap del DUEÑO; el backend lo cierra después)
+// ============================================================
 function RegisterPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmar, setConfirmar] = useState('')
   const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(false)
+  const [success, setSuccess] = useState(null)
   const navigate = useNavigate()
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError(null)
-    setSuccess(false)
+    if (password !== confirmar) {
+      setError('Las contraseñas no coinciden')
+      return
+    }
     try {
-      const params = new URLSearchParams()
-      params.append('username', username)
-      params.append('password', password)
-
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString(),
-      })
-
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.detail || 'Error en registro')
-      }
-
-      setSuccess(true)
+      await apiFetch('/auth/register', { method: 'POST', form: { username, password } })
+      setSuccess('Dueño registrado. Ahora inicia sesión.')
       setTimeout(() => navigate('/login'), 1500)
     } catch (err) {
       setError(err.message)
@@ -113,157 +146,440 @@ function RegisterPage() {
   }
 
   return (
-    <div className="auth-container">
-      <h2>Registro</h2>
-      <form onSubmit={handleSubmit} className="auth-form">
-        <label>
-          Usuario
-          <input
-            type="text"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            required
-            autoComplete="username"
-          />
-        </label>
-        <label>
-          Contraseña
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-          />
-        </label>
-        {error && <p className="error">{error}</p>}
-        {success && <p className="success">Registro exitoso. Redirigiendo a login...</p>}
-        <button type="submit">Registrar</button>
-      </form>
-      <p>
-        ¿Ya tienes cuenta? <a href="/login">Inicia sesión</a>
-      </p>
+    <div className="auth-wrap">
+      <div className="auth-card">
+        <div className="auth-logo">
+          <span className="auth-logo-mark">E</span>
+          <div>
+            <h2>Configurar dueño</h2>
+            <p className="auth-sub">Este paso solo está disponible mientras la empresa no tenga dueño</p>
+          </div>
+        </div>
+        <form onSubmit={handleSubmit} className="auth-form">
+          <div className="form-group">
+            <label>Usuario</label>
+            <input type="text" value={username} onChange={e => setUsername(e.target.value)} required minLength={3} autoComplete="username" />
+          </div>
+          <div className="form-group">
+            <label>Contraseña (mínimo 8 caracteres)</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
+          </div>
+          <div className="form-group">
+            <label>Confirmar contraseña</label>
+            <input type="password" value={confirmar} onChange={e => setConfirmar(e.target.value)} required minLength={8} autoComplete="new-password" />
+          </div>
+          {error && <div className="alert alert-error">{error}</div>}
+          {success && <div className="alert alert-success">{success}</div>}
+          <button type="submit" className="btn btn-primary btn-block">Registrar dueño</button>
+        </form>
+        <p className="auth-alt">
+          ¿Ya tienes cuenta? <a href="/login">Inicia sesión</a>
+        </p>
+      </div>
     </div>
   )
 }
 
-// Página principal protegida (ejemplo dashboard)
-function Dashboard() {
-  const auth = useAuth()
+// ============================================================
+// Vistas del panel
+// ============================================================
+function VistaResumen({ auth }) {
+  const [empresa, setEmpresa] = useState(null)
+  const [cotizaciones, setCotizaciones] = useState(null)
+  const [error, setError] = useState(null)
 
-  async function handleLogout() {
-    auth.logout()
+  useEffect(() => {
+    let vivo = true
+    Promise.all([
+      apiFetch('/empresa', { token: auth.token }),
+      apiFetch('/cotizaciones', { token: auth.token }),
+    ])
+      .then(([emp, cots]) => {
+        if (!vivo) return
+        setEmpresa(emp)
+        setCotizaciones(Array.isArray(cots) ? cots : [])
+      })
+      .catch(err => vivo && setError(err.message))
+    return () => { vivo = false }
+  }, [auth.token])
+
+  if (error) return <div className="alert alert-error">{error}</div>
+
+  const aprobadas = (cotizaciones || []).filter(c => c.estado === 'aceptada')
+  const totalCotizado = (cotizaciones || []).reduce((s, c) => s + (c.total || 0), 0)
+  const fmt = n => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0)
+
+  return (
+    <div>
+      <h3 className="vista-titulo">Resumen</h3>
+      {!empresa && !cotizaciones ? <div className="spinner" /> : (
+        <>
+          <div className="grid-cards">
+            <div className="stat-card">
+              <span className="stat-valor">{cotizaciones ? cotizaciones.length : '—'}</span>
+              <span className="stat-etiqueta">Cotizaciones registradas</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-valor">{aprobadas.length}</span>
+              <span className="stat-etiqueta">Aprobadas</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-valor">{fmt(totalCotizado)}</span>
+              <span className="stat-etiqueta">Valor cotizado</span>
+            </div>
+          </div>
+          {empresa && (
+            <div className="card">
+              <h4>Empresa</h4>
+              <div className="tabla-datos">
+                <div><span>Nombre</span><strong>{empresa.nombre || 'Pendiente de configurar'}</strong></div>
+                <div><span>NIT</span><strong>{empresa.nit || '—'}</strong></div>
+                <div><span>Ciudad</span><strong>{empresa.ciudad || '—'}</strong></div>
+                <div><span>Teléfono</span><strong>{empresa.telefono || '—'}</strong></div>
+              </div>
+              {auth.user.rol === 'dueno' && !empresa.nombre && (
+                <p className="nota">Configura los datos de tu empresa en la sección <strong>Empresa</strong>.</p>
+              )}
+            </div>
+          )}
+          <div className="card card-quieto">
+            <h4>Construcción por fases</h4>
+            <p className="muted">
+              Fase 1 (fundamentos, roles y seguridad) está en producción.
+              Telegram, plantillas DOCX, catálogo de servicios, cotizaciones completas,
+              proyectos, gastos, agenda, documentos, credenciales y EDÉN AI Core se
+              activarán por fases — cada módulo aparece aquí cuando funcione de verdad.
+            </p>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function VistaEmpresa({ auth, empresa, alGuardar }) {
+  const esDueno = auth.user.rol === 'dueno'
+  const [form, setForm] = useState(empresa)
+  const [msg, setMsg] = useState(null)
+  const [guardando, setGuardando] = useState(false)
+
+  useEffect(() => { setForm(empresa) }, [empresa])
+
+  if (!form) return <div className="spinner" />
+
+  const campo = clave => ({
+    value: form[clave] || '',
+    onChange: e => setForm({ ...form, [clave]: e.target.value }),
+    disabled: !esDueno,
+  })
+
+  async function guardar(e) {
+    e.preventDefault()
+    setMsg(null)
+    setGuardando(true)
+    try {
+      const datos = { ...form }
+      delete datos.id
+      delete datos.actualizado_en
+      Object.keys(datos).forEach(k => { if (datos[k] === undefined) delete datos[k] })
+      await apiFetch('/empresa', { method: 'PUT', body: datos, token: auth.token })
+      setMsg({ tipo: 'ok', texto: 'Datos de la empresa guardados.' })
+      alGuardar()
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    } finally {
+      setGuardando(false)
+    }
   }
 
   return (
-    <div className="dashboard-container">
-      <header>
-        <h1>Bienvenido, {auth.user?.username || 'Usuario'}</h1>
-        <button onClick={handleLogout}>Cerrar sesión</button>
-      </header>
-      <main>
-        <p>Esta es la aplicación EDÉN - Asistente Empresarial Inteligente.</p>
-        {/* Aquí se pueden agregar más componentes y rutas internas */}
+    <div>
+      <h3 className="vista-titulo">Empresa</h3>
+      <form onSubmit={guardar} className="card">
+        <div className="form-grid">
+          <div className="form-group"><label>Nombre o razón social</label><input {...campo('nombre')} maxLength={200} /></div>
+          <div className="form-group"><label>NIT</label><input {...campo('nit')} maxLength={50} /></div>
+          <div className="form-group"><label>Teléfono</label><input {...campo('telefono')} maxLength={50} /></div>
+          <div className="form-group"><label>Correo</label><input {...campo('correo')} type="email" maxLength={120} /></div>
+          <div className="form-group"><label>Ciudad</label><input {...campo('ciudad')} maxLength={100} /></div>
+        </div>
+        <div className="form-group"><label>Dirección</label><input {...campo('direccion')} maxLength={200} /></div>
+        {msg && <div className={`alert ${msg.tipo === 'ok' ? 'alert-success' : 'alert-error'}`}>{msg.texto}</div>}
+        {esDueno
+          ? <button type="submit" className="btn btn-primary" disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar cambios'}</button>
+          : <p className="muted">Solo el dueño puede modificar la configuración de la empresa.</p>}
+      </form>
+    </div>
+  )
+}
+
+function VistaUsuarios({ auth }) {
+  const [usuarios, setUsuarios] = useState(null)
+  const [msg, setMsg] = useState(null)
+  const [nuevo, setNuevo] = useState({ username: '', password: '' })
+  const [trabajando, setTrabajando] = useState(false)
+
+  async function cargar() {
+    try {
+      setUsuarios(await apiFetch('/usuarios', { token: auth.token }))
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    }
+  }
+  useEffect(() => { cargar() }, [])
+
+  async function crearAdmin(e) {
+    e.preventDefault()
+    setMsg(null)
+    setTrabajando(true)
+    try {
+      await apiFetch('/usuarios', { method: 'POST', body: nuevo, token: auth.token })
+      setNuevo({ username: '', password: '' })
+      setMsg({ tipo: 'ok', texto: 'Administrador creado.' })
+      await cargar()
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    } finally {
+      setTrabajando(false)
+    }
+  }
+
+  async function cambiarEstado(u) {
+    setMsg(null)
+    try {
+      await apiFetch(`/usuarios/${u.id}/estado?activo=${!u.is_active}`, { method: 'PUT', token: auth.token })
+      await cargar()
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    }
+  }
+
+  async function resetPassword(u) {
+    const nueva = prompt(`Contraseña nueva para ${u.username} (mínimo 8 caracteres):`)
+    if (nueva === null) return
+    if (nueva.length < 8) {
+      setMsg({ tipo: 'error', texto: 'La contraseña debe tener al menos 8 caracteres.' })
+      return
+    }
+    setMsg(null)
+    try {
+      await apiFetch(`/usuarios/${u.id}/password`, { method: 'PUT', body: { password: nueva }, token: auth.token })
+      setMsg({ tipo: 'ok', texto: `Contraseña restablecida para ${u.username}.` })
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    }
+  }
+
+  async function eliminar(u) {
+    if (!window.confirm(`¿Eliminar definitivamente a ${u.username}?`)) return
+    setMsg(null)
+    try {
+      await apiFetch(`/usuarios/${u.id}`, { method: 'DELETE', token: auth.token })
+      await cargar()
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    }
+  }
+
+  if (!usuarios) return msg ? <div className="alert alert-error">{msg.texto}</div> : <div className="spinner" />
+
+  return (
+    <div>
+      <h3 className="vista-titulo">Usuarios</h3>
+      {msg && <div className={`alert ${msg.tipo === 'ok' ? 'alert-success' : 'alert-error'}`}>{msg.texto}</div>}
+      <form onSubmit={crearAdmin} className="card fila-form">
+        <div className="form-group"><label>Usuario nuevo (administrador)</label>
+          <input value={nuevo.username} onChange={e => setNuevo({ ...nuevo, username: e.target.value })} required minLength={3} placeholder="nombre.usuario" /></div>
+        <div className="form-group"><label>Contraseña (mín. 8)</label>
+          <input type="password" value={nuevo.password} onChange={e => setNuevo({ ...nuevo, password: e.target.value })} required minLength={8} /></div>
+        <button type="submit" className="btn btn-primary" disabled={trabajando}>{trabajando ? 'Creando…' : 'Crear administrador'}</button>
+      </form>
+      <div className="card">
+        <table className="table">
+          <thead>
+            <tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr>
+          </thead>
+          <tbody>
+            {usuarios.map(u => (
+              <tr key={u.id} className={u.is_active ? '' : 'fila-inactiva'}>
+                <td>{u.username}{u.id === auth.user.id && <em> (tú)</em>}</td>
+                <td><span className={`badge ${u.rol === 'dueno' ? 'badge-azul' : 'badge-violeta'}`}>{u.rol === 'dueno' ? 'Dueño' : 'Administrador'}</span></td>
+                <td>{u.is_active ? 'Activo' : 'Inactivo'}</td>
+                <td>{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
+                <td className="acciones">
+                  {u.rol !== 'dueno' && (
+                    <>
+                      <button type="button" className="btn btn-mini" onClick={() => cambiarEstado(u)}>{u.is_active ? 'Desactivar' : 'Activar'}</button>
+                      <button type="button" className="btn btn-mini" onClick={() => resetPassword(u)}>Restablecer contraseña</button>
+                      <button type="button" className="btn btn-mini btn-peligro" onClick={() => eliminar(u)}>Eliminar</button>
+                    </>
+                  )}
+                  {u.rol === 'dueno' && <span className="muted">—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+const ROL_ETIQUETA = { dueno: 'Dueño', admin: 'Administrador' }
+
+function VistaCuenta({ auth, alActualizar }) {
+  const [p1, setP1] = useState('')
+  const [p2, setP2] = useState('')
+  const [msg, setMsg] = useState(null)
+  const [guardando, setGuardando] = useState(false)
+
+  async function guardar(e) {
+    e.preventDefault()
+    setMsg(null)
+    if (p1 !== p2) { setMsg({ tipo: 'error', texto: 'Las contraseñas no coinciden.' }); return }
+    setGuardando(true)
+    try {
+      await apiFetch('/mi/password', { method: 'PUT', body: { password: p1 }, token: auth.token })
+      setMsg({ tipo: 'ok', texto: 'Contraseña actualizada.' })
+      setP1(''); setP2('')
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  return (
+    <div>
+      <h3 className="vista-titulo">Mi cuenta</h3>
+      <div className="card">
+        <div className="tabla-datos">
+          <div><span>Usuario</span><strong>{auth.user.username}</strong></div>
+          <div><span>Rol</span><span className={`badge ${auth.user.rol === 'dueno' ? 'badge-azul' : 'badge-violeta'}`}>{ROL_ETIQUETA[auth.user.rol] || auth.user.rol}</span></div>
+        </div>
+        <form onSubmit={guardar}>
+          <div className="form-grid">
+            <div className="form-group"><label>Contraseña nueva (mín. 8)</label>
+              <input type="password" value={p1} onChange={e => setP1(e.target.value)} required minLength={8} autoComplete="new-password" /></div>
+            <div className="form-group"><label>Confirmar</label>
+              <input type="password" value={p2} onChange={e => setP2(e.target.value)} required minLength={8} autoComplete="new-password" /></div>
+          </div>
+          {msg && <div className={`alert ${msg.tipo === 'ok' ? 'alert-success' : 'alert-error'}`}>{msg.texto}</div>}
+          <button type="submit" className="btn btn-primary" disabled={guardando}>{guardando ? 'Guardando…' : 'Cambiar contraseña'}</button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// Panel (dashboard con navegación de módulos)
+// ============================================================
+function Dashboard({ auth }) {
+  const [vista, setVista] = useState('resumen')
+  const [empresa, setEmpresa] = useState(null)
+
+  async function cargarEmpresa() {
+    try {
+      setEmpresa(await apiFetch('/empresa', { token: auth.token }))
+    } catch { /* la vista de resumen muestra su propio error */ }
+  }
+  useEffect(() => { cargarEmpresa() }, [])
+
+  const esDueno = auth.user.rol === 'dueno'
+  const items = [
+    { id: 'resumen', nombre: 'Resumen' },
+    { id: 'empresa', nombre: 'Empresa' },
+    { id: 'cuenta', nombre: 'Mi cuenta' },
+    ...(esDueno ? [{ id: 'usuarios', nombre: 'Usuarios' }] : []),
+  ]
+
+  return (
+    <div className="panel">
+      <aside className="sidebar">
+        <div className="sidebar-marca">
+          <span className="auth-logo-mark">E</span>
+          <strong>EDÉN</strong>
+        </div>
+        <nav>
+          {items.map(t => (
+            <button key={t.id} type="button" onClick={() => setVista(t.id)}
+              className={`nav-item ${vista === t.id ? 'activo' : ''}`}>
+              {t.nombre}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-pie">
+          <span className="badge badge-azul">{ROL_ETIQUETA[auth.user.rol]}</span>
+          <span className="muted">{auth.user.username}</span>
+          <button type="button" className="btn btn-mini" onClick={auth.logout}>Cerrar sesión</button>
+        </div>
+      </aside>
+      <main className="panel-main">
+        {vista === 'resumen' && <VistaResumen auth={auth} />}
+        {vista === 'empresa' && <VistaEmpresa alGuardar={cargarEmpresa} auth={auth} empresa={empresa} />}
+        {vista === 'cuenta' && <VistaCuenta auth={auth} />}
+        {vista === 'usuarios' && <VistaUsuarios auth={auth} />}
       </main>
     </div>
   )
 }
 
-// Componente principal App con rutas y contexto de autenticación
+// ============================================================
+// Página principal
+// ============================================================
 export default function App() {
   const [user, setUser] = useState(null)
+  const [token, setToken] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  // Función para obtener el token JWT desde localStorage
   function getToken() {
     return localStorage.getItem('token')
   }
 
-  // Función para guardar token y cargar usuario
   async function login(username, password) {
-    const params = new URLSearchParams()
-    params.append('username', username)
-    params.append('password', password)
-
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    })
-
-    if (!res.ok) {
-      throw new Error('Login fallido')
-    }
-
-    const data = await res.json()
+    const data = await apiFetch('/auth/login', { method: 'POST', form: { username, password } })
     localStorage.setItem('token', data.access_token)
-    await fetchUser()
+    setToken(data.access_token)
+    await fetchUser(data.access_token)
   }
 
-  // Función para eliminar token y usuario
   function logout() {
     localStorage.removeItem('token')
+    setToken(null)
     setUser(null)
   }
 
-  // Función para obtener datos del usuario actual con token
-  async function fetchUser() {
-    const token = getToken()
-    if (!token) {
-      setUser(null)
-      setLoading(false)
-      return
-    }
-
+  async function fetchUser(tk) {
+    const tokenUsado = tk || getToken()
+    if (!tokenUsado) { setLoading(false); return }
     try {
-      const res = await fetch('/api/auth/me', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-
-      if (!res.ok) {
-        throw new Error('Token inválido')
-      }
-
-      const data = await res.json()
-      setUser(data)
+      const me = await apiFetch('/auth/me', { token: tokenUsado })
+      setUser(me)
+      setToken(tokenUsado)
     } catch {
       localStorage.removeItem('token')
       setUser(null)
+      setToken(null)
     } finally {
       setLoading(false)
     }
   }
 
-  // Al montar el componente, intenta cargar usuario si hay token
-  useEffect(() => {
-    fetchUser()
-  }, [])
+  useEffect(() => { fetchUser() }, [])
 
-  // Contexto que se pasa a los hijos
-  const authContextValue = {
-    user,
-    login,
-    logout,
-  }
+  const authContextValue = { user, token, login, logout }
 
   if (loading) {
-    return <div className="loading">Cargando...</div>
+    return <div className="cargando"><div className="spinner" /></div>
   }
 
   return (
     <AuthContext.Provider value={authContextValue}>
       <Routes>
-        <Route
-          path="/"
-          element={
-            <PrivateRoute>
-              <Dashboard />
-            </PrivateRoute>
-          }
-        />
+        <Route path="/" element={<PrivateRoute><Dashboard auth={{ ...authContextValue }} /></PrivateRoute>} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
-        {/* Ruta comodín para redirigir a raíz */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthContext.Provider>
