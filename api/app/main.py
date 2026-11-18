@@ -16,12 +16,14 @@ from app.db import (
 from app.modelos import (
     User, Empresa, Cotizacion, Proyecto, Gasto, Bitacora, Auditoria,
     TelegramConfig, TelegramCuenta, TelegramCodigo, TelegramMensaje,
+    Plantilla, PlantillaVersion, Documento,
 )
 from app.seguridad import (
     create_access_token, get_current_user, require_dueno,
     login_permitido, registrar_intento_login, cliente_ip,
 )
 from app.telegram import router as telegram_router, arrancar_telegram
+from app.plantillas import router as plantillas_router
 
 # Aviso sin romper el arranque en desarrollo
 from app.config import AUTH_SECRET
@@ -50,6 +52,7 @@ async def _al_arrancar():
 
 
 app.include_router(telegram_router)
+app.include_router(plantillas_router)
 
 # ============================================================
 # ESQUEMAS Pydantic

@@ -82,6 +82,61 @@ class Auditoria(Base):
 
 
 # ============================================================
+# PLANTILLAS Y DOCUMENTOS (FASE 3)
+# ============================================================
+
+class Plantilla(Base):
+    """Plantilla de cotización DOCX o HTML (la fila guarda la versión ACTUAL)."""
+    __tablename__ = "plantillas"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(120), unique=True, index=True, nullable=False)
+    tipo = Column(String(10), nullable=False)  # docx | html
+    descripcion = Column(String(500), default="")
+    version = Column(Integer, default=1, nullable=False)
+    variables = Column(Text, default="[]")  # JSON list detectadas
+    es_predeterminada = Column(Boolean, default=False)
+    activa = Column(Boolean, default=True)
+    archivo_nombre = Column(String(255), default="")
+    tamano = Column(Integer, default=0)
+    creado_por_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+    actualizado_en = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PlantillaVersion(Base):
+    """Snapshot histórico de cada versión de una plantilla; los documentos
+    quedan amarrados a su versión para que actualizar la plantilla no altere
+    documentos históricos."""
+    __tablename__ = "plantillas_versiones"
+    id = Column(Integer, primary_key=True, index=True)
+    plantilla_id = Column(Integer, ForeignKey("plantillas.id"), index=True, nullable=False)
+    version = Column(Integer, nullable=False)
+    nombre = Column(String(120), default="")
+    descripcion = Column(String(500), default="")
+    archivo_ruta = Column(String(500), nullable=False)
+    creado_por_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+
+class Documento(Base):
+    """Documento generado (cotización) con referencia a la plantilla y versión."""
+    __tablename__ = "documentos"
+    id = Column(Integer, primary_key=True, index=True)
+    plantilla_id = Column(Integer, ForeignKey("plantillas.id"), nullable=False)
+    plantilla_version = Column(Integer, nullable=False)
+    tipo = Column(String(40), default="cotizacion")
+    numero_cotizacion = Column(String(60), index=True, nullable=False)
+    datos_json = Column(Text, nullable=True)
+    archivo_docx = Column(String(500), nullable=True)
+    archivo_html = Column(String(500), nullable=True)
+    archivo_pdf = Column(String(500), nullable=True)
+    pdf_ok = Column(Boolean, default=False)
+    enviado_telegram = Column(Boolean, default=False)
+    creado_por_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================
 # TELEGRAM (FASE 2)
 # ============================================================
 

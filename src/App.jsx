@@ -1,5 +1,6 @@
 import React, { useState, useEffect, createContext, useContext } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { VistaPlantillas } from './Plantillas.jsx'
 
 // ============================================================
 // API helper
@@ -577,6 +578,17 @@ function VistaTelegram({ auth }) {
       <h3 className="vista-titulo">Telegram</h3>
       {msg && <div className={`alert ${msg.tipo === 'ok' ? 'alert-success' : 'alert-error'}`}>{msg.texto}</div>}
 
+      <div className="card">
+        <h4>Cómo conectar el bot (5 minutos, hazlo con el dueño)</h4>
+        <ol className="pasos">
+          <li>En Telegram, abre <strong>@BotFather</strong> → comando <code>/newbot</code> → elige nombre y usuario → copia el <strong>token</strong>.</li>
+          <li>Vuelve aquí, pega el token en "Configuración del bot" (solo dueño) y guarda: Telegram lo valida al instante y queda cifrado.</li>
+          <li>Pulsa <strong>Activar bot</strong>. Para pruebas locales deja el modo long-polling; en producción usa webhook HTTPS.</li>
+          <li>Genera tu <strong>código temporal</strong> (abajo) y envíale al bot: <code>/vincular CODIGO</code>.</li>
+          <li>Confirma con <code>/estado</code> en el chat. Cada usuario del panel repite solo el paso 4 desde su cuenta.</li>
+        </ol>
+      </div>
+
       <div className="grid-cards">
         <div className="stat-card">
           <span className="stat-valor">{bot.activo ? 'En línea' : 'Apagado'}</span>
@@ -737,6 +749,7 @@ function Dashboard({ auth }) {
     { id: 'resumen', nombre: 'Resumen' },
     { id: 'empresa', nombre: 'Empresa' },
     { id: 'telegram', nombre: 'Telegram' },
+    { id: 'plantillas', nombre: 'Plantillas' },
     { id: 'cuenta', nombre: 'Mi cuenta' },
     ...(esDueno ? [{ id: 'usuarios', nombre: 'Usuarios' }] : []),
   ]
@@ -766,6 +779,7 @@ function Dashboard({ auth }) {
         {vista === 'resumen' && <VistaResumen auth={auth} />}
         {vista === 'empresa' && <VistaEmpresa alGuardar={cargarEmpresa} auth={auth} empresa={empresa} />}
         {vista === 'telegram' && <VistaTelegram auth={auth} />}
+        {vista === 'plantillas' && <VistaPlantillas auth={auth} />}
         {vista === 'cuenta' && <VistaCuenta auth={auth} />}
         {vista === 'usuarios' && <VistaUsuarios auth={auth} />}
       </main>

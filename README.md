@@ -63,6 +63,31 @@ propias de la empresa. Se desarrolla por fases (ver "Hoja de ruta" al final).
 - Auditoría Telegram: códigos, vinculación, webhook rechazado, activar/desactivar,
   notificaciones. El admin no ve la config del bot.
 
+## FASE 3 — Plantillas de Cotización (hecha)
+
+- Panel "Plantillas": subida de **DOCX** (formato principal) o registro de
+  **HTML** (pegado), nombre/descripción, detección automática de variables
+  `{{...}}`, previsualización con datos de ejemplo, versiones con historial,
+  predeterminada única, activar/desactivar, eliminar (si tiene documentos se
+  desactiva para conservar el historial), descarga del original.
+- Solo el dueño administra plantillas; todos los usuarios pueden generar.
+- Motor de variables: 22 variables de empresa/cliente/totales + `{{tabla_servicios}}`
+  (múltiples filas: ítem, descripción, cantidad, unidad, precio unitario, total,
+  más filas de subtotal/descuento/IVA/TOTAL).
+- **Conservación del diseño**: en DOCX se reemplaza el texto conservando el
+  formato original (párrafos, tablas, encabezados y pies de página); si
+  `{{tabla_servicios}}` está dentro de una tabla, su fila se clona con el
+  formato de la plantilla; si está en un párrafo, se inserta una tabla nueva.
+- Totales en formato colombiano ($1.287.000) calculados del formulario:
+  subtotal = Σ items, descuento %, IVA % sobre la base, total.
+- Documentos: cada generación/amarrado guarda plantilla + **versión** +
+  datos completos (JSON); actualizar una plantilla nunca altera históricos.
+- PDF: DOCX→PDF con **LibreOffice headless** si está disponible en el servidor
+  (`SOFFICE_PATH` o en PATH; instalar `libreoffice` en producción); sin él se
+  entrega el .docx lleno con mensaje honesto. HTML→PDF con WeasyPrint (opcional).
+- Telegram envía documentos desde FASE 5 (AI Core); el envío está cableado
+  en `_enviar`.
+
 ## Variables de entorno
 
 | Variable | Default | Uso |
@@ -74,6 +99,7 @@ propias de la empresa. Se desarrolla por fases (ver "Hoja de ruta" al final).
 | MEDIA_DIR | ./media | guardado de adjuntos |
 | PUBLIC_BASE_URL | — | base pública del API para registro del webhook |
 | TG_CODE_TTL_MINUTOS / TG_MAX_ADJUNTO_MB / TG_POLL_SECONDS | 10 / 20 / 25 | Telegram |
+| SOFFICE_PATH | — | ruta de soffice.exe para DOCX→PDF (o LibreOffice en PATH) |
 
 ## Rutas API
 
@@ -100,7 +126,6 @@ propias de la empresa. Se desarrolla por fases (ver "Hoja de ruta" al final).
 3. **FASE 3 — Plantillas:** DOCX + HTML + variables `{{...}}`, versiones, PDF.
 4. **FASE 4 — Comercial:** catálogo, clientes, cotizaciones con ítems, PDF.
 5. **FASE 5 — IA:** EDÉN AI Core, agentes, herramientas reales sobre la BD.
-6. **FASE 6 — Operaciones:** proyectos, gastos, agenda, documentos, bóveda.
 7. **FASE 7 —** reportes, auditoría completa, pruebas integrales.
 
 Cada fase se entrega completa y verificada; nada se marca como terminado sin pruebas.
