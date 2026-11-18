@@ -28,6 +28,8 @@ services:
       IA_MODEL: ${IA_MODEL:-}
       IA_API_KEY: ${IA_API_KEY:-}
     volumes: [media:/app/media]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db: {condition: service_healthy}
   web:
