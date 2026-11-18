@@ -134,14 +134,15 @@ async def probar_ia(current_user: User = Depends(require_dueno), db: Session = D
         registrar_auditoria(db, "ia_prueba", usuario=current_user, detalle="FALLÓ: sin credenciales")
         return {"ok": False, "estado_texto": cfg.estado_texto}
     try:
-        texto = await _completar(cred, [
+        mensaje = await _completar(cred, [
             {"role": "user", "content": 'Responde solo OK'}],
             herramientas=None)
         cfg.estado_texto = f"Conectado ({cred['modelo']})"
         cfg.ultima_prueba = datetime.utcnow()
         db.commit()
         registrar_auditoria(db, "ia_prueba", usuario=current_user, detalle="OK")
-        return {"ok": True, "estado_texto": cfg.estado_texto, "respuesta": texto[:80]}
+        respuesta = (mensaje.get("content") or "") if isinstance(mensaje, dict) else str(mensaje)
+        return {"ok": True, "estado_texto": cfg.estado_texto, "respuesta": respuesta[:80]}
     except IAError as e:
         cfg.estado_texto = f"Prueba falló: {str(e)[:150]}"
         cfg.ultima_prueba = datetime.utcnow()
