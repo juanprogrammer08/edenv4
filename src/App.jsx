@@ -2,6 +2,7 @@ import React, { useState, useEffect, createContext, useContext } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { VistaPlantillas } from './Plantillas.jsx'
 import { VistaCotizaciones, VistaClientes, VistaServicios } from './Comercial.jsx'
+import { VistaProyectos, VistaAgenda, VistaDocumentos, VistaCredenciales } from './Operaciones.jsx'
 import { VistaAI } from './IA.jsx'
 
 // ============================================================
@@ -750,6 +751,10 @@ function Dashboard({ auth }) {
     { id: 'cotizaciones', nombre: 'Cotizaciones' },
     { id: 'clientes', nombre: 'Clientes' },
     { id: 'servicios', nombre: 'Servicios' },
+    { id: 'proyectos', nombre: 'Proyectos' },
+    { id: 'agenda', nombre: 'Agenda' },
+    { id: 'documentos', nombre: 'Documentos' },
+    ...(esDueno ? [{ id: 'credenciales', nombre: 'Credenciales' }] : []),
     { id: 'empresa', nombre: 'Empresa' },
     { id: 'telegram', nombre: 'Telegram' },
     { id: 'plantillas', nombre: 'Plantillas' },
@@ -787,6 +792,10 @@ function Dashboard({ auth }) {
         {vista === 'cotizaciones' && <VistaCotizaciones auth={auth} />}
         {vista === 'clientes' && <VistaClientes auth={auth} />}
         {vista === 'servicios' && <VistaServicios auth={auth} />}
+        {vista === 'proyectos' && <VistaProyectos auth={auth} />}
+        {vista === 'agenda' && <VistaAgenda auth={auth} />}
+        {vista === 'documentos' && <VistaDocumentos auth={auth} />}
+        {vista === 'credenciales' && <VistaCredenciales auth={auth} />}
         {vista === 'cuenta' && <VistaCuenta auth={auth} />}
         {vista === 'usuarios' && <VistaUsuarios auth={auth} />}
       </main>

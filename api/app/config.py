@@ -2,7 +2,7 @@
 """Configuración central de EDÉN (variables de entorno)."""
 import os
 
-APP_VERSION = "1.5.0-fase5"
+APP_VERSION = "1.6.0-fase6"
 
 # Seguridad general
 AUTH_SECRET = os.getenv("AUTH_SECRET", "secret-key-change-me")

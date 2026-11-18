@@ -172,9 +172,19 @@ class IAAccion(Base):
 class Proyecto(Base):
     __tablename__ = "proyectos"
     id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String(100), nullable=False)
-    cotizacion_id = Column(Integer, ForeignKey("cotizaciones.id"), nullable=False)
-    estado = Column(String(20), default="activo")  # activo, finalizado, cancelado
+    codigo = Column(String(20), index=True, nullable=True)  # PRY-00001
+    nombre = Column(String(150), nullable=False)
+    # cotización de origen si nació de una; un proyecto directo puede no tenerla
+    cotizacion_id = Column(Integer, ForeignKey("cotizaciones.id"), nullable=True)
+    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True)
+    cliente = Column(String(200), default="")  # snapshot
+    descripcion = Column(Text, default="")
+    presupuesto = Column(Float, default=0.0)
+    fecha_inicio = Column(DateTime, nullable=True)
+    fecha_fin = Column(DateTime, nullable=True)
+    # activo, pausado, finalizado, cancelado
+    estado = Column(String(20), default="activo")
+    avance_pct = Column(Float, default=0.0)
     creado_en = Column(DateTime, default=datetime.utcnow)
 
 
@@ -184,7 +194,58 @@ class Gasto(Base):
     proyecto_id = Column(Integer, ForeignKey("proyectos.id"), nullable=False)
     descripcion = Column(Text, nullable=False)
     monto = Column(Float, nullable=False)
+    # gasto (servicios externos) | compra (materiales/equipos)
+    tipo = Column(String(20), default="gasto")
+    # materiales | mano_obra | herramientas | transporte | servicios | otro
+    categoria = Column(String(30), default="otro")
     fecha = Column(DateTime, default=datetime.utcnow)
+    creado_por_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+class AgendaEvento(Base):
+    """Calendario empresarial con recordatorios por Telegram."""
+    __tablename__ = "agenda_eventos"
+    id = Column(Integer, primary_key=True, index=True)
+    titulo = Column(String(200), nullable=False)
+    # visita_tecnica | reunion | entrega | vencimiento | seguimiento | otro
+    tipo = Column(String(30), default="otro")
+    fecha_hora = Column(DateTime, nullable=False, index=True)
+    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True)
+    proyecto_id = Column(Integer, ForeignKey("proyectos.id"), nullable=True)
+    notas = Column(Text, default="")
+    recordado = Column(Boolean, default=False)
+    creado_por_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+
+class Archivo(Base):
+    """Gestor documental: repositorio central (los generados viven en Documento)."""
+    __tablename__ = "archivos"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(255), nullable=False)
+    # cotizacion | contrato | foto | factura | comprobante | plano | informe | tecnico | cliente | otro
+    categoria = Column(String(30), default="otro")
+    archivo_ruta = Column(String(500), nullable=False)
+    tamano = Column(Integer, default=0)
+    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True)
+    proyecto_id = Column(Integer, ForeignKey("proyectos.id"), nullable=True)
+    cotizacion_id = Column(Integer, ForeignKey("cotizaciones.id"), nullable=True)
+    subido_por_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+
+class Credencial(Base):
+    """Bóveda: contraseñas CIFRADAS; revelar deja huella en auditoría (solo dueño)."""
+    __tablename__ = "credenciales"
+    id = Column(Integer, primary_key=True, index=True)
+    plataforma = Column(String(150), nullable=False)
+    url = Column(String(300), default="")
+    usuario_cuenta = Column(String(150), default="")
+    password_cifrada = Column(Text, nullable=False)  # Fernet; nunca sale en listados
+    categoria = Column(String(60), default="general")
+    notas = Column(Text, default="")
+    creado_en = Column(DateTime, default=datetime.utcnow)
+    actualizado_en = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Bitacora(Base):

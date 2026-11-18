@@ -142,6 +142,49 @@ def _m002_cotizaciones_comercial(conn):
 MIGRACIONES.append(("002_cotizaciones_comercial", _m002_cotizaciones_comercial))
 
 
+def _m003_operaciones(conn):
+    """FASE 6: proyectos completos y gastos clasificados. No destructiva."""
+    add_proy = [
+        ("codigo", "codigo VARCHAR(20)"),
+        ("cliente_id", "cliente_id INTEGER"),
+        ("cliente", "cliente VARCHAR(200) DEFAULT ''"),
+        ("descripcion", "descripcion TEXT DEFAULT ''"),
+        ("presupuesto", "presupuesto FLOAT DEFAULT 0"),
+        ("fecha_inicio", "fecha_inicio DATETIME"),
+        ("fecha_fin", "fecha_fin DATETIME"),
+        ("avance_pct", "avance_pct FLOAT DEFAULT 0"),
+    ]
+    for columna, ddl in add_proy:
+        if not _columna_existe(conn, "proyectos", columna):
+            conn.execute(text(f"ALTER TABLE proyectos ADD COLUMN {ddl}"))
+    numerar = conn.execute(text("SELECT id FROM proyectos WHERE codigo IS NULL")).fetchall()
+    for (pid,) in numerar:
+        conn.execute(text("UPDATE proyectos SET codigo = :c WHERE id = :id"),
+                     {"c": f"PRY-{pid:05d}", "id": pid})
+    # presupuesto/ cliente desde la cotización de origen
+    conn.execute(text(
+        "UPDATE proyectos SET presupuesto = (SELECT total FROM cotizaciones "
+        "WHERE cotizaciones.id = proyectos.cotizacion_id) "
+        "WHERE presupuesto = 0 AND EXISTS (SELECT 1 FROM cotizaciones WHERE cotizaciones.id = proyectos.cotizacion_id)"
+    ))
+    conn.execute(text(
+        "UPDATE proyectos SET cliente = (SELECT cliente FROM cotizaciones "
+        "WHERE cotizaciones.id = proyectos.cotizacion_id) "
+        "WHERE cliente = '' AND EXISTS (SELECT 1 FROM cotizaciones WHERE cotizaciones.id = proyectos.cotizacion_id)"
+    ))
+    add_gasto = [
+        ("tipo", "tipo VARCHAR(20) DEFAULT 'gasto'"),
+        ("categoria", "categoria VARCHAR(30) DEFAULT 'otro'"),
+        ("creado_por_id", "creado_por_id INTEGER"),
+    ]
+    for columna, ddl in add_gasto:
+        if not _columna_existe(conn, "gastos", columna):
+            conn.execute(text(f"ALTER TABLE gastos ADD COLUMN {ddl}"))
+
+
+MIGRACIONES.append(("003_operaciones", _m003_operaciones))
+
+
 def _registrar_migracion(conn, version):
     conn.execute(text(
         f"INSERT INTO {TABLA_MIGRACIONES} (version) SELECT '{version}' "

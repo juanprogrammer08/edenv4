@@ -504,6 +504,13 @@ def duplicar_cotizacion(cid: int, current_user: User = Depends(get_current_user)
     return _cotizacion_completa(db, nueva)
 
 
+def _siguiente_codigo_proyecto(db: Session) -> str:
+    ultimo = db.execute(select(Proyecto.codigo).where(Proyecto.codigo.isnot(None))
+                        .order_by(Proyecto.codigo.desc()).limit(1)).scalar()
+    n = int(ultimo.split("-")[-1]) + 1 if ultimo and ultimo.startswith("PRY-") else 1
+    return f"PRY-{n:05d}"
+
+
 @router.post("/cotizaciones/{cid}/convertir")
 def convertir_en_proyecto(cid: int, current_user: User = Depends(get_current_user),
                           db: Session = Depends(get_db)):
@@ -515,7 +522,11 @@ def convertir_en_proyecto(cid: int, current_user: User = Depends(get_current_use
     if db.execute(select(Proyecto).where(Proyecto.cotizacion_id == cid)).scalar_one_or_none():
         raise HTTPException(409, detail="Esta cotización ya generó un proyecto")
     proy = Proyecto(
-        nombre=f"{c.numero} — {c.cliente}"[:100], cotizacion_id=cid, estado="activo"
+        codigo=_siguiente_codigo_proyecto(db),
+        nombre=f"{c.numero} — {c.cliente}"[:150], cotizacion_id=cid,
+        cliente_id=c.cliente_id, cliente=c.cliente[:200],
+        descripcion=c.descripcion or "", presupuesto=c.total or 0.0,
+        estado="activo",
     )
     db.add(proy)
     db.commit()
@@ -523,8 +534,8 @@ def convertir_en_proyecto(cid: int, current_user: User = Depends(get_current_use
     c.estado = "convertida"
     db.commit()
     registrar_auditoria(db, "cotizacion_convertida", usuario=current_user,
-                        detalle=f"{c.numero} -> proyecto #{proy.id}")
-    return {"ok": True, "proyecto_id": proy.id, "estado": c.estado}
+                        detalle=f"{c.numero} -> proyecto {proy.codigo}")
+    return {"ok": True, "proyecto_id": proy.id, "proyecto_codigo": proy.codigo, "estado": c.estado}
 
 
 # ---- Generación de PDF con la plantilla (FASE 3) ----

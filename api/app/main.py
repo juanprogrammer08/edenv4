@@ -26,6 +26,7 @@ from app.telegram import router as telegram_router, arrancar_telegram
 from app.plantillas import router as plantillas_router
 from app.comercial import router as comercial_router
 from app.ia_core import router as ia_router
+from app.operaciones import router as operaciones_router, arrancar_recordatorios
 
 # Aviso sin romper el arranque en desarrollo
 from app.config import AUTH_SECRET
@@ -51,12 +52,14 @@ app.add_middleware(
 async def _al_arrancar():
     inicializar_bd()
     await arrancar_telegram()
+    arrancar_recordatorios()
 
 
 app.include_router(telegram_router)
 app.include_router(plantillas_router)
 app.include_router(comercial_router)
 app.include_router(ia_router)
+app.include_router(operaciones_router)
 
 # ============================================================
 # ESQUEMAS Pydantic
@@ -97,35 +100,7 @@ class EmpresaOut(EmpresaBase):
     model_config = ConfigDict(from_attributes=True)
 
 # Las cotizaciones viven en app/comercial.py (FASE 4): ítems, numeración y estados.
-
-class ProyectoCreate(BaseModel):
-    nombre: str
-    cotizacion_id: int
-    estado: Optional[str] = "activo"
-
-class ProyectoOut(BaseModel):
-    id: int
-    nombre: str
-    cotizacion_id: int
-    estado: str
-    creado_en: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-class GastoCreate(BaseModel):
-    proyecto_id: int
-    descripcion: str
-    monto: float
-    fecha: Optional[datetime] = None
-
-class GastoOut(BaseModel):
-    id: int
-    proyecto_id: int
-    descripcion: str
-    monto: float
-    fecha: datetime
-
-    model_config = ConfigDict(from_attributes=True)
+# Proyectos, gastos, agenda, archivos y credenciales viven en app/operaciones.py (FASE 6).
 
 class BitacoraCreate(BaseModel):
     entidad: str
@@ -327,104 +302,7 @@ def list_auditoria(limit: int = 100, action: Optional[str] = None,
         query = query.where(Auditoria.accion.contains(action))
     return db.execute(query).scalars().all()
 
-# --- CRUD Proyectos ---
-
-@app.post("/proyectos", response_model=ProyectoOut)
-def create_proyecto(proyecto: ProyectoCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    cot = db.execute(select(Cotizacion).where(Cotizacion.id == proyecto.cotizacion_id)).scalar_one_or_none()
-    if not cot:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cotización asociada no existe")
-    db_proy = Proyecto(nombre=proyecto.nombre, cotizacion_id=proyecto.cotizacion_id, estado=proyecto.estado)
-    db.add(db_proy)
-    db.commit()
-    db.refresh(db_proy)
-    return db_proy
-
-@app.get("/proyectos", response_model=List[ProyectoOut])
-def list_proyectos(skip: int = 0, limit: int = 100, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.execute(select(Proyecto).offset(skip).limit(limit)).scalars().all()
-
-@app.get("/proyectos/{proyecto_id}", response_model=ProyectoOut)
-def get_proyecto(proyecto_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    proy = db.execute(select(Proyecto).where(Proyecto.id == proyecto_id)).scalar_one_or_none()
-    if not proy:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
-    return proy
-
-@app.put("/proyectos/{proyecto_id}", response_model=ProyectoOut)
-def update_proyecto(proyecto_id: int, proyecto: ProyectoCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    proy = db.execute(select(Proyecto).where(Proyecto.id == proyecto_id)).scalar_one_or_none()
-    if not proy:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
-    proy.nombre = proyecto.nombre
-    proy.cotizacion_id = proyecto.cotizacion_id
-    proy.estado = proyecto.estado
-    db.commit()
-    db.refresh(proy)
-    return proy
-
-@app.delete("/proyectos/{proyecto_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_proyecto(proyecto_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    proy = db.execute(select(Proyecto).where(Proyecto.id == proyecto_id)).scalar_one_or_none()
-    if not proy:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
-    db.delete(proy)
-    db.commit()
-    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
-
-# --- CRUD Gastos ---
-
-@app.post("/gastos", response_model=GastoOut)
-def create_gasto(gasto: GastoCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    proy = db.execute(select(Proyecto).where(Proyecto.id == gasto.proyecto_id)).scalar_one_or_none()
-    if not proy:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Proyecto asociado no existe")
-    db_gasto = Gasto(
-        proyecto_id=gasto.proyecto_id,
-        descripcion=gasto.descripcion,
-        monto=gasto.monto,
-        fecha=gasto.fecha or datetime.utcnow()
-    )
-    db.add(db_gasto)
-    db.commit()
-    db.refresh(db_gasto)
-    return db_gasto
-
-@app.get("/gastos", response_model=List[GastoOut])
-def list_gastos(skip: int = 0, limit: int = 100, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.execute(select(Gasto).offset(skip).limit(limit)).scalars().all()
-
-@app.get("/gastos/{gasto_id}", response_model=GastoOut)
-def get_gasto(gasto_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    gasto = db.execute(select(Gasto).where(Gasto.id == gasto_id)).scalar_one_or_none()
-    if not gasto:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gasto no encontrado")
-    return gasto
-
-@app.put("/gastos/{gasto_id}", response_model=GastoOut)
-def update_gasto(gasto_id: int, gasto: GastoCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    db_gasto = db.execute(select(Gasto).where(Gasto.id == gasto_id)).scalar_one_or_none()
-    if not db_gasto:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gasto no encontrado")
-    proy = db.execute(select(Proyecto).where(Proyecto.id == gasto.proyecto_id)).scalar_one_or_none()
-    if not proy:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Proyecto asociado no existe")
-    db_gasto.proyecto_id = gasto.proyecto_id
-    db_gasto.descripcion = gasto.descripcion
-    db_gasto.monto = gasto.monto
-    db_gasto.fecha = gasto.fecha or datetime.utcnow()
-    db.commit()
-    db.refresh(db_gasto)
-    return db_gasto
-
-@app.delete("/gastos/{gasto_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_gasto(gasto_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    gasto = db.execute(select(Gasto).where(Gasto.id == gasto_id)).scalar_one_or_none()
-    if not gasto:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gasto no encontrado")
-    db.delete(gasto)
-    db.commit()
-    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+# Proyectos y gastos viven en app/operaciones.py (FASE 6).
 
 # --- CRUD Bitacora ---
 

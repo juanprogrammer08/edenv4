@@ -137,6 +137,33 @@ propias de la empresa. Se desarrolla por fases (ver "Hoja de ruta" al final).
 - Fallback por variables: IA_BASE_URL / IA_MODEL / IA_API_KEY (el panel
   tiene prioridad).
 
+## FASE 6 — Operaciones (hecha)
+
+- **Proyectos completos** (`app/operaciones.py`): código `PRY-#####`, cliente,
+  presupuesto, fechas, avance, estado (activo/pausado/finalizado/cancelado);
+  nacen de la conversión de cotizaciones aprobadas o se crean directos;
+  **comparación presupuesto vs ejecutado** con desglose por categoría y saldo
+  (rojo al quedarse sin saldo).
+- **Gastos y compras**: tipo (gasto|compra) y categoría (materiales, mano de
+  obra, herramientas, transporte, servicios, otro); siempre ligados a un
+  proyecto; editables; el admin y el dueño registran.
+- **Agenda**: visitas técnicas, reuniones, entregas, vencimientos,
+  seguimientos; ligados a cliente/proyecto; **vigilante de fondo cada 5 min
+  notifica por Telegram a las cuentas vinculadas 24 h antes** (una vez),
+  cuando el bot está activo.
+- **Gestor documental**: repositorio `/media/archivos` con categorías
+  (contrato, plano, factura, comprobante, foto, informe, técnico, cliente) y
+  vínculos a cliente/proyecto/cotización; descarga autenticada; eliminar
+  solo dueño (borra también el fichero).
+- **Bóveda de credenciales (solo dueño)**: plataforma, URL, usuario y
+  contraseña **cifrada con Fernet**; el listado JAMÁS la devuelve;
+  "Revelar" la muestra al dueño una vez y **queda auditado**
+  (`credencial_revelada`). Si se rota AUTH_SECRET hay que volver a guardarla.
+- Migración `003_operaciones` (proyectos completos con backfill de código/
+  presupuesto/cliente desde la cotización; gastos con tipo/categoría).
+- CRUD viejo de proyectos/gastos retirado de `main.py` (vive completo en
+  `operaciones.py`).
+
 ## Variables de entorno
 
 | Variable | Default | Uso |
