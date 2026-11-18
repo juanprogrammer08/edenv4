@@ -185,6 +185,15 @@ def _m003_operaciones(conn):
 MIGRACIONES.append(("003_operaciones", _m003_operaciones))
 
 
+def _m004_marcas_servicios(conn):
+    """FASE 7.x por el propietario: vínculo servicio↔marca (desplegable)."""
+    if not _columna_existe(conn, "servicios", "marca_id"):
+        conn.execute(text("ALTER TABLE servicios ADD COLUMN marca_id INTEGER"))
+
+
+MIGRACIONES.append(("004_marca_servicios", _m004_marcas_servicios))
+
+
 def _registrar_migracion(conn, version):
     conn.execute(text(
         f"INSERT INTO {TABLA_MIGRACIONES} (version) SELECT '{version}' "

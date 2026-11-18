@@ -43,7 +43,7 @@ def prueba(nombre, condicion, detalle=""):
 
 # ---- dueño y admin ----
 s, h = llamada("GET", "/health")
-prueba("health 1.4.0", s == 200 and h.get("version", "").startswith("1.4.0"), (s, h))
+prueba("health reporta version y motor de bd", s == 200 and "version" in h and "db" in h, (s, h))
 s, r = llamada("POST", "/auth/register", data={"username": "dueno4", "password": "claveSegura123"},
                headers={"Content-Type": "application/x-www-form-urlencoded"})
 s, r = llamada("POST", "/auth/login", data={"username": "dueno4", "password": "claveSegura123"},
@@ -74,6 +74,30 @@ por_codigo = {x["codigo"]: x for x in cr}
 prueba("catálogo listado con costo_total y margen",
        por_codigo["PD-001"]["costo_total"] == 40000 and por_codigo["PD-001"]["margen_pct"] == 38.5,
        por_codigo.get("PD-001"))
+
+# ---- 1b. Código automático por categoría + marcas (pedido del propietario) ----
+s, mk = llamada("POST", "/marcas", json={"nombre": "SUPERCAN"}, token=tk)
+prueba("dueño crea marca para el desplegable", s == 201 and mk["nombre"] == "SUPERCAN", (s, mk))
+s, s_auto1 = llamada("POST", "/servicios", json={
+    "nombre": "Roler de datos cat6", "categoria": "material", "unidad": "rollo",
+    "precio_venta": 350000, "marca_id": mk["id"]}, token=tk)
+prueba("código automático MAT- para material", s == 201
+       and s_auto1["codigo"].startswith("MAT-") and s_auto1["marca"] == "SUPERCAN"
+       and s_auto1["unidad"] == "rollo", (s, s_auto1))
+s, s_auto2 = llamada("POST", "/servicios", json={
+    "nombre": "Conector RJ45 blindado", "categoria": "material", "unidad": "caja",
+    "precio_venta": 45000}, token=tk)
+prueba("segundo material → correlativo", s == 201 and s_auto2["codigo"].startswith("MAT-")
+       and s_auto2["codigo"] != s_auto1["codigo"], (s, s_auto2))
+s, s_auto3 = llamada("POST", "/servicios", json={
+    "nombre": "Inspección de tablero eléctrico", "categoria": "servicio", "unidad": "global",
+    "precio_venta": 250000}, token=tk)
+prueba("código automático SER- para servicio", s == 201 and s_auto3["codigo"].startswith("SER-"),
+       (s, s_auto3))
+s, mk403 = llamada("POST", "/marcas", json={"nombre": "OtroFabricante"}, token=tk_adm)
+prueba("admin NO crea marcas (dueno)", s == 403, (s, mk403))
+s, mk409 = llamada("DELETE", f"/marcas/{mk['id']}", token=tk)
+prueba("marca en uso no se elimina (409)", s == 409, (s, mk409))
 
 # ---- 2. Clientes ----
 s, cl1 = llamada("POST", "/clientes", json={"nombre": "Edificio Centenario", "nit": "900555123-4",

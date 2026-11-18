@@ -49,16 +49,22 @@ export const ESTADO_ETIQUETA = {
 export function VistaServicios({ auth }) {
   const esDueno = auth.user.rol === 'dueno'
   const [servicios, setServicios] = useState(null)
+  const [marcas, setMarcas] = useState([])
   const [msg, setMsg] = useState(null)
   const [nuevo, setNuevo] = useState({
-    codigo: '', nombre: '', descripcion: '', categoria: 'general', unidad: 'und',
-    precio_venta: 0, costo_materiales: 0, costo_mano_obra: 0, tiempo_estimado_horas: 0,
+    nombre: '', descripcion: '', categoria: 'servicio', unidad: 'punto', marca_id: '',
+    precio_venta: 0, costo_mano_obra: 0,
   })
+  const [otraUnidad, setOtraUnidad] = useState('')
   const [trabajo, setTrabajo] = useState(false)
 
   async function cargar() {
-    try { setServicios(await apiFetch('/servicios', { token: auth.token })) }
-    catch (err) { setMsg({ tipo: 'error', texto: err.message }) }
+    try {
+      setServicios(await apiFetch('/servicios', { token: auth.token }))
+      setMarcas(await apiFetch('/marcas', { token: auth.token }))
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
+    }
   }
   useEffect(() => { cargar() }, [])
 
@@ -67,15 +73,36 @@ export function VistaServicios({ auth }) {
     setMsg(null)
     setTrabajo(true)
     try {
-      await apiFetch('/servicios', { method: 'POST', body: nuevo, token: auth.token })
-      setNuevo({ codigo: '', nombre: '', descripcion: '', categoria: 'general', unidad: 'und',
-                 precio_venta: 0, costo_materiales: 0, costo_mano_obra: 0, tiempo_estimado_horas: 0 })
-      setMsg({ tipo: 'ok', texto: 'Servicio agregado al catálogo.' })
+      const cuerpo = {
+        nombre: nuevo.nombre, descripcion: nuevo.descripcion, categoria: nuevo.categoria,
+        unidad: nuevo.unidad === '__otro__' ? (otraUnidad.trim() || 'und') : nuevo.unidad,
+        marca_id: nuevo.marca_id ? Number(nuevo.marca_id) : null,
+        precio_venta: Number(nuevo.precio_venta) || 0,
+        costo_materiales: 0, costo_mano_obra: Number(nuevo.costo_mano_obra) || 0,
+        tiempo_estimado_horas: 0,
+      }
+      await apiFetch('/servicios', { method: 'POST', body: cuerpo, token: auth.token })
+      setNuevo({ nombre: '', descripcion: '', categoria: nuevo.categoria, unidad: 'punto', marca_id: '',
+                 precio_venta: 0, costo_mano_obra: 0 })
+      setOtraUnidad('')
+      setMsg({ tipo: 'ok', texto: `Agregado al catálogo con código automático (${nuevo.categoria === 'material' ? 'MAT' : 'SER'}-…).` })
       await cargar()
     } catch (err) {
       setMsg({ tipo: 'error', texto: err.message })
     } finally {
       setTrabajo(false)
+    }
+  }
+
+  async function agregarMarca(e) {
+    e.preventDefault()
+    const nombre = prompt('Nombre de la marca / proveedor:')
+    if (!nombre || !nombre.trim()) return
+    try {
+      await apiFetch('/marcas', { method: 'POST', body: { nombre: nombre.trim() }, token: auth.token })
+      setMarcas(await apiFetch('/marcas', { token: auth.token }))
+    } catch (err) {
+      setMsg({ tipo: 'error', texto: err.message })
     }
   }
 
@@ -119,22 +146,50 @@ export function VistaServicios({ auth }) {
       {msg && <div className={`alert ${msg.tipo === 'ok' ? 'alert-success' : 'alert-error'}`}>{msg.texto}</div>}
       {esDueno && (
         <form onSubmit={guardar} className="card">
-          <h4>Nuevo servicio</h4>
+          <h4>Nuevo item del catálogo</h4>
           <div className="form-grid">
-            <div className="form-group"><label>Código</label>
-              <input value={nuevo.codigo} onChange={e => setNuevo({ ...nuevo, codigo: e.target.value })} required maxLength={20} /></div>
+            <div className="form-group"><label>Categoría</label>
+              <select value={nuevo.categoria}
+                      onChange={e => setNuevo({ ...nuevo, categoria: e.target.value })}>
+                <option value="servicio">Servicio</option>
+                <option value="material">Material</option>
+              </select></div>
+            <div className="form-group"><label>Unidad</label>
+              <select value={nuevo.unidad}
+                      onChange={e => setNuevo({ ...nuevo, unidad: e.target.value })}>
+                <option value="punto">Punto</option>
+                <option value="und">Unidad</option>
+                <option value="metro">Metro</option>
+                <option value="rollo">Rollo</option>
+                <option value="caja">Caja</option>
+                <option value="jornada">Jornada</option>
+                <option value="global">Global</option>
+                <option value="__otro__">Otra…</option>
+              </select></div>
+            {nuevo.unidad === '__otro__' && (
+              <div className="form-group"><label>Escribe la unidad</label>
+                <input value={otraUnidad} onChange={e => setOtraUnidad(e.target.value)}
+                       placeholder="ej.: par de conectores" /></div>
+            )}
+            <div className="form-group"><label>Marca / proveedor (opcional)</label>
+              <div className="fila-acciones" style={{ gap: '0.4rem', margin: 0, flexWrap: 'nowrap' }}>
+                <select style={{ flex: 1 }} value={nuevo.marca_id}
+                        onChange={e => setNuevo({ ...nuevo, marca_id: e.target.value })}>
+                  <option value="">—</option>
+                  {marcas.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                </select>
+                <button type="button" className="btn btn-mini" onClick={agregarMarca}>+ Marca</button>
+              </div></div>
             <div className="form-group"><label>Nombre</label>
               <input value={nuevo.nombre} onChange={e => setNuevo({ ...nuevo, nombre: e.target.value })} required maxLength={150} /></div>
-            <div className="form-group"><label>Categoría</label>
-              <input value={nuevo.categoria} onChange={e => setNuevo({ ...nuevo, categoria: e.target.value })} maxLength={60} /></div>
-            <div className="form-group"><label>Unidad</label>
-              <input value={nuevo.unidad} onChange={e => setNuevo({ ...nuevo, unidad: e.target.value })} maxLength={30} /></div>
             <div className="form-group"><label>Precio de venta</label>
               <input type="number" step="any" min="0" value={nuevo.precio_venta}
                      onChange={e => setNuevo({ ...nuevo, precio_venta: e.target.value })} required /></div>
             <div className="form-group"><label>Costo de mano de obra (opcional)</label>
               <input type="number" step="any" min="0" value={nuevo.costo_mano_obra}
                      onChange={e => setNuevo({ ...nuevo, costo_mano_obra: e.target.value })} /></div>
+            <div className="form-group"><label>Código</label>
+              <em className="muted">se genera solo: {nuevo.categoria === 'material' ? 'MAT-' : 'SER-'}####</em></div>
           </div>
           <div className="form-group"><label>Descripción</label>
             <textarea value={nuevo.descripcion} rows={2}
@@ -148,13 +203,14 @@ export function VistaServicios({ auth }) {
           <p className="muted">Catálogo vacío.</p>
         ) : (
           <table className="table">
-            <thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Precio</th><th>Estado</th><th></th></tr></thead>
+            <thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>Marca</th><th>Unidad</th><th>Precio</th><th>Estado</th><th></th></tr></thead>
             <tbody>
               {servicios.map(s => (
                 <tr key={s.id} className={s.activo ? '' : 'fila-inactiva'}>
                   <td>{s.codigo}</td>
                   <td>{s.nombre}</td>
-                  <td>{s.categoria}</td>
+                  <td>{s.categoria === 'material' ? 'Material' : 'Servicio'}</td>
+                  <td>{s.marca || '—'}</td>
                   <td>{s.unidad}</td>
                   <td>{fmtCOP(s.precio_venta)}</td>
                   <td>{s.activo ? 'Activo' : 'Inactivo'}</td>

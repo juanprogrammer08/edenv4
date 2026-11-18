@@ -27,7 +27,7 @@ from app.config import ROL_DUENO, ROL_ADMIN
 from app.db import get_db, registrar_auditoria
 from app.modelos import (
     Cotizacion, CotizacionItem, Servicio, Cliente, ConfigComercial,
-    Proyecto, Gasto, Documento, User, Empresa,
+    Proyecto, Gasto, Documento, User, Empresa, Marca,
 )
 from app.seguridad import get_current_user, require_dueno
 
@@ -78,11 +78,12 @@ def put_config_comercial(datos: ConfigComercialIn, current_user: User = Depends(
 # ============================================================
 
 class ServicioIn(BaseModel):
-    codigo: str = Field(..., min_length=1, max_length=20)
+    codigo: Optional[str] = Field(None, max_length=20)  # si falta se genera por categoría
     nombre: str = Field(..., min_length=1, max_length=150)
     descripcion: str = Field("", max_length=2000)
-    categoria: str = Field("general", max_length=60)
+    categoria: str = Field("servicio", max_length=60)  # servicio | material (desplegable)
     unidad: str = Field("und", max_length=30)
+    marca_id: Optional[int] = None
     precio_venta: float = Field(..., ge=0)
     costo_materiales: float = Field(0, ge=0)
     costo_mano_obra: float = Field(0, ge=0)
@@ -90,16 +91,68 @@ class ServicioIn(BaseModel):
     activo: bool = True
 
 
-def _servicio_out(s: Servicio) -> dict:
+def _siguiente_codigo_servicio(db: Session, categoria: str) -> str:
+    prefijo = {"servicio": "SER-", "material": "MAT-"}.get((categoria or "").lower(), "GEN-")
+    ultimo = db.execute(select(Servicio.codigo).where(Servicio.codigo.like(prefijo + "%"))
+                        .order_by(Servicio.codigo.desc()).limit(1)).scalar()
+    n = int(ultimo.split("-")[-1]) + 1 if ultimo else 1
+    return f"{prefijo}{n:04d}"
+
+
+def _servicio_out(s: Servicio, db: Session) -> dict:
     costo = (s.costo_materiales or 0) + (s.costo_mano_obra or 0)
     margen = ((s.precio_venta - costo) / s.precio_venta * 100) if s.precio_venta else 0
+    marca = None
+    if s.marca_id:
+        fila = db.execute(select(Marca).where(Marca.id == s.marca_id)).scalar_one_or_none()
+        marca = fila.nombre if fila else None
     return {
         "id": s.id, "codigo": s.codigo, "nombre": s.nombre, "descripcion": s.descripcion,
-        "categoria": s.categoria, "unidad": s.unidad, "precio_venta": s.precio_venta,
+        "categoria": s.categoria, "unidad": s.unidad, "marca_id": s.marca_id,
+        "marca": marca,
+        "precio_venta": s.precio_venta,
         "costo_materiales": s.costo_materiales, "costo_mano_obra": s.costo_mano_obra,
         "costo_total": costo, "margen_pct": round(margen, 1),
         "tiempo_estimado_horas": s.tiempo_estimado_horas, "activo": s.activo,
     }
+
+
+@router.get("/marcas")
+def listar_marcas(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return [{"id": m.id, "nombre": m.nombre}
+            for m in db.execute(select(Marca).order_by(Marca.nombre)).scalars().all()]
+
+
+class MarcaIn(BaseModel):
+    nombre: str = Field(..., min_length=1, max_length=120)
+
+
+@router.post("/marcas", status_code=status.HTTP_201_CREATED)
+def crear_marca(datos: MarcaIn, current_user: User = Depends(require_dueno),
+                db: Session = Depends(get_db)):
+    if db.execute(select(Marca).where(Marca.nombre == datos.nombre)).scalar_one_or_none():
+        raise HTTPException(400, detail="Ya existe esa marca")
+    m = Marca(nombre=datos.nombre.strip()[:120])
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+    registrar_auditoria(db, "marca_creada", usuario=current_user, detalle=m.nombre)
+    return {"id": m.id, "nombre": m.nombre}
+
+
+@router.delete("/marcas/{mid}")
+def eliminar_marca(mid: int, current_user: User = Depends(require_dueno),
+                   db: Session = Depends(get_db)):
+    m = db.execute(select(Marca).where(Marca.id == mid)).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, detail="Marca no encontrada")
+    usada = db.execute(select(Servicio).where(Servicio.marca_id == mid)).first()
+    if usada:
+        raise HTTPException(409, detail="La marca está en uso por servicios del catálogo")
+    db.delete(m)
+    db.commit()
+    registrar_auditoria(db, "marca_eliminada", usuario=current_user, detalle=m.nombre)
+    return {"ok": True}
 
 
 @router.get("/servicios")
@@ -113,20 +166,23 @@ def listar_servicios(q: Optional[str] = None, categoria: Optional[str] = None,
         query = query.where(Servicio.categoria == categoria)
     if only_active:
         query = query.where(Servicio.activo == True)  # noqa: E712
-    return [_servicio_out(s) for s in db.execute(query).scalars().all()]
+    return [_servicio_out(s, db) for s in db.execute(query).scalars().all()]
 
 
 @router.post("/servicios", status_code=status.HTTP_201_CREATED)
 def crear_servicio(datos: ServicioIn, current_user: User = Depends(require_dueno),
                    db: Session = Depends(get_db)):
-    if db.execute(select(Servicio).where(Servicio.codigo == datos.codigo)).scalar_one_or_none():
+    codigo = (datos.codigo or "").strip() or _siguiente_codigo_servicio(db, datos.categoria)
+    if db.execute(select(Servicio).where(Servicio.codigo == codigo)).scalar_one_or_none():
         raise HTTPException(400, detail="Ya existe un servicio con ese código")
-    s = Servicio(creado_por_id=current_user.id, **datos.model_dump())
+    if datos.marca_id and not db.execute(select(Marca).where(Marca.id == datos.marca_id)).scalar_one_or_none():
+        raise HTTPException(400, detail="La marca indicada no existe")
+    s = Servicio(creado_por_id=current_user.id, codigo=codigo, **datos.model_dump(exclude={"codigo"}))
     db.add(s)
     db.commit()
     db.refresh(s)
     registrar_auditoria(db, "servicio_creado", usuario=current_user, detalle=f"{s.codigo} {s.nombre}")
-    return _servicio_out(s)
+    return _servicio_out(s, db)
 
 
 @router.put("/servicios/{sid}")
@@ -135,16 +191,26 @@ def editar_servicio(sid: int, datos: ServicioIn, current_user: User = Depends(re
     s = db.execute(select(Servicio).where(Servicio.id == sid)).scalar_one_or_none()
     if not s:
         raise HTTPException(404, detail="Servicio no encontrado")
-    otro = db.execute(select(Servicio).where(Servicio.codigo == datos.codigo,
-                                             Servicio.id != sid)).scalar_one_or_none()
-    if otro:
-        raise HTTPException(400, detail="Ya existe un servicio con ese código")
-    for campo, valor in datos.model_dump().items():
+    datos_dict = datos.model_dump()
+    if datos_dict.get("marca_id") is not None:
+        if datos_dict["marca_id"] and not db.execute(
+                select(Marca).where(Marca.id == datos_dict["marca_id"])).scalar_one_or_none():
+            raise HTTPException(400, detail="La marca indicada no existe")
+    if datos_dict.get("codigo"):
+        otro = db.execute(select(Servicio).where(Servicio.codigo == datos_dict["codigo"],
+                                                 Servicio.id != sid)).scalar_one_or_none()
+        if otro:
+            raise HTTPException(400, detail="Ya existe un servicio con ese código")
+    else:
+        datos_dict.pop("codigo", None)
+    for campo, valor in datos_dict.items():
+        if campo == "codigo" and valor is None:
+            continue
         setattr(s, campo, valor)
     db.commit()
     db.refresh(s)
     registrar_auditoria(db, "servicio_editado", usuario=current_user, detalle=f"{s.codigo}")
-    return _servicio_out(s)
+    return _servicio_out(s, db)
 
 
 @router.delete("/servicios/{sid}")

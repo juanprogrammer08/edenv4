@@ -75,20 +75,30 @@ class CotizacionItem(Base):
 
 
 class Servicio(Base):
-    """Catálogo de servicios y precios (el dueño lo administra)."""
+    """Catálogo de servicios y materiales (el dueño lo administra)."""
     __tablename__ = "servicios"
     id = Column(Integer, primary_key=True, index=True)
     codigo = Column(String(20), unique=True, index=True, nullable=False)
     nombre = Column(String(150), nullable=False)
     descripcion = Column(Text, default="")
-    categoria = Column(String(60), default="general")
+    # servicio | material
+    categoria = Column(String(60), default="servicio")
     unidad = Column(String(30), default="und")
+    marca_id = Column(Integer, ForeignKey("marcas.id"), nullable=True)
     precio_venta = Column(Float, nullable=False)
     costo_materiales = Column(Float, default=0.0)
     costo_mano_obra = Column(Float, default=0.0)
     tiempo_estimado_horas = Column(Float, default=0.0)
     activo = Column(Boolean, default=True)
     creado_por_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+
+class Marca(Base):
+    """Marcas / proveedores para el desplegable del catálogo (dueño administra)."""
+    __tablename__ = "marcas"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(120), unique=True, nullable=False)
     creado_en = Column(DateTime, default=datetime.utcnow)
 
 
