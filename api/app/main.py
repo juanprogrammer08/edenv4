@@ -27,6 +27,7 @@ from app.plantillas import router as plantillas_router
 from app.comercial import router as comercial_router
 from app.ia_core import router as ia_router
 from app.operaciones import router as operaciones_router, arrancar_recordatorios
+from app.reportes import router as reportes_router
 
 # Aviso sin romper el arranque en desarrollo
 from app.config import AUTH_SECRET
@@ -60,6 +61,7 @@ app.include_router(plantillas_router)
 app.include_router(comercial_router)
 app.include_router(ia_router)
 app.include_router(operaciones_router)
+app.include_router(reportes_router)
 
 # ============================================================
 # ESQUEMAS Pydantic
@@ -133,7 +135,9 @@ class AuditoriaOut(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": APP_VERSION}
+    from app.db import engine
+    return {"status": "ok", "version": APP_VERSION,
+            "db": engine.dialect.name, "hora": datetime.utcnow().isoformat(timespec="seconds")}
 
 # --- AUTENTICACIÓN ---
 
@@ -296,10 +300,13 @@ def update_empresa(datos: EmpresaBase, current_user: User = Depends(require_duen
 
 @app.get("/auditoria", response_model=List[AuditoriaOut])
 def list_auditoria(limit: int = 100, action: Optional[str] = None,
+                   username: Optional[str] = None,
                    current_user: User = Depends(require_dueno), db: Session = Depends(get_db)):
     query = select(Auditoria).order_by(Auditoria.id.desc()).limit(max(1, min(limit, 500)))
     if action:
         query = query.where(Auditoria.accion.contains(action))
+    if username:
+        query = query.where(Auditoria.username == username)
     return db.execute(query).scalars().all()
 
 # Proyectos y gastos viven en app/operaciones.py (FASE 6).

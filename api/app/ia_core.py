@@ -15,6 +15,7 @@
 """
 import json
 import os
+import time
 from datetime import datetime
 
 import httpx
@@ -661,7 +662,18 @@ async def _nucleo(db, user, args_texto: str, origen: str, chat_id: str | None):
 @router.post("/ia/chat")
 async def ia_chat(datos: ChatIn, current_user: User = Depends(get_current_user),
                   db: Session = Depends(get_db)):
+    # límite de uso: cada llamada consume crédito del proveedor del dueño
+    ahora = time.time()
+    ventana = [t for t in _CHAT_USOS.get(current_user.id, [])
+               if ahora - t < int(os.getenv("IA_CHAT_WINDOW_SECONDS", "300"))]
+    limite = int(os.getenv("IA_CHAT_LIMIT", "40"))
+    if len(ventana) >= limite:
+        raise HTTPException(429, detail=f"Límite de {limite} mensajes por ventana alcanzado; espera un momento.")
+    _CHAT_USOS[current_user.id] = ventana + [ahora]
     return await _nucleo(db, current_user, datos.texto, "panel", None)
+
+
+_CHAT_USOS: dict = {}
 
 
 @router.get("/ia/mensajes")

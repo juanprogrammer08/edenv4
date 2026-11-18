@@ -195,13 +195,52 @@ propias de la empresa. Se desarrolla por fases (ver "Hoja de ruta" al final).
 | /telegram/... | GET/POST/PUT/DELETE | estado y código (autenticado); config/cuentas/notificar (solo dueño) |
 | /cotizaciones, /proyectos, /gastos, /bitacoras | CRUD | autenticado |
 
+## Despliegue en Dokploy
+
+1. Repo → **Dokploy** (proyecto Compose) apuntando a este repositorio.
+2. Variables de entorno (servicio **api**):
+   - `AUTH_SECRET` (obligatoria, larga y aleatoria — también cifra el token del
+     bot, la clave IA y las contraseñas de la bóveda: **si se rota, hay que
+     volver a guardar token/clave/contraseñas**)
+   - `CORS_ORIGINS=https://tu-dominio.com`
+   - `PUBLIC_BASE_URL=https://tu-dominio.com` (para el webhook de Telegram)
+3. Dominio de Dokploy → puerto **8080 del servicio web** (nginx sirve la SPA y
+   hace proxy `/api → api:8000`).
+4. **PDF**: la imagen del API ya instala LibreOffice (`SOFFICE_PATH` por
+   defecto `/usr/bin/soffice`): las plantillas DOCX se convierten a PDF
+   conservando el diseño; el build es más pesado, es el costo honesto del PDF.
+5. **Volúmenes**: `pgdata` (Postgres) y `media` (adjuntos, plantillas,
+   documentos y archivos del repositorio) ya están en el compose.
+6. Al arrancar: la BD se migra sola (001→003) y el **primer registro** crea al
+   dueño. Después: token de @BotFather en **Telegram**; credenciales de
+   **OmniRoute** en **Yeruzzza AI**; las plantillas DOCX propias en
+   **Plantillas**; y cambiar la contraseña temporal del dueño.
+
+### Verificación post-despliegue
+
+    GET /api/health  →  {"status":"ok","version":"1.7.0","db":"postgresql",...}
+
+La suite `api/test_integral.py` reproduce la historia completa (dueño →
+plantilla → catálogo → cliente → cotización → PDF → proyecto → gastos →
+agenda → documentos → bóveda → IA → reportes → auditoría) contra una BD
+temporal:
+
+    DATABASE_URL=sqlite:///./test_integral.db uvicorn app.main:app --port 8427
+    python test_integral.py        # 22 comprobaciones OK
+
 ## Hoja de ruta (spec maestra)
 
-1. **FASE 1 — Fundamentos (esta):** roles, empresa, seguridad, auditoría. ✅
-2. **FASE 2 — Telegram:** bot, vinculación de usuarios por código temporal, webhooks, envío de PDF.
-3. **FASE 3 — Plantillas:** DOCX + HTML + variables `{{...}}`, versiones, PDF.
-4. **FASE 4 — Comercial:** catálogo, clientes, cotizaciones con ítems, PDF.
-5. **FASE 5 — IA:** EDÉN AI Core, agentes, herramientas reales sobre la BD.
-7. **FASE 7 —** reportes, auditoría completa, pruebas integrales.
+1. **FASE 1 — Fundamentos:** roles, empresa, seguridad, auditoría. ✅ 1.1.0
+2. **FASE 2 — Telegram:** bot, vinculación, webhooks, adjuntos, notificaciones. ✅ 1.2.0
+3. **FASE 3 — Plantillas:** DOCX/HTML + variables + versiones + documentos. ✅ 1.3.0
+4. **FASE 4 — Comercial:** catálogo, clientes, cotizaciones con ítems, límites. ✅ 1.4.0
+5. **FASE 5 — IA:** núcleo Yeruzzza, agentes, herramientas reales, autorización humana. ✅ 1.5.0
+6. **FASE 6 — Operaciones:** proyectos, gastos/compras, agenda, documentos, bóveda. ✅ 1.6.0
+7. **FASE 7 — Cierre:** reportes con filtros, auditoría visualizada, pruebas
+   integrales (22 OK), límite del chat IA, LibreOffice para PDF de producción y
+   documentación de despliegue. ✅ 1.7.0
 
-Cada fase se entrega completa y verificada; nada se marca como terminado sin pruebas.
+Pendiente del propietario (datos externos, con la UI lista): token de
+@BotFather, credenciales de OmniRoute (sección Yeruzzza AI), plantillas DOCX
+propias y cambiar la contraseña temporal.
+Cada fase se entregó completa y verificada; nada se marcó como terminado sin pruebas.
