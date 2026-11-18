@@ -7,3 +7,4 @@ __pycache__/
 _inspeccion_bd.py
 package-lock.json
 dist/
+*.db.backup-*
