@@ -324,7 +324,7 @@ input:focus, select:focus, textarea:focus {
   font-weight: 700;
   letter-spacing: 0.35em;
   color: var(--c-azul);
-  font-family: 'Space Grotesk', var(--fuente);
+  font-family: 'Chakra Petch', var(--fuente);
 }
 
 .codigo-grande em {
