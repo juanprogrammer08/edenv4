@@ -88,6 +88,30 @@ propias de la empresa. Se desarrolla por fases (ver "Hoja de ruta" al final).
 - Telegram envía documentos desde FASE 5 (AI Core); el envío está cableado
   en `_enviar`.
 
+## FASE 4 — Comercial (hecha)
+
+- **Catálogo de servicios** (`app/comercial.py`): código, nombre, categoría,
+  unidad, **precio de venta, costo de materiales y mano de obra, tiempo
+  estimado**, margen calculado en vivo. Solo el dueño lo administra; todos
+  consultan. Un servicio usado en cotizaciones se desactiva en vez de
+  borrarse (el historial queda intacto).
+- **Clientes**: registros comerciales SIN usuarios; admin y dueño los manejan.
+  Historial comercial por cliente (sus cotizaciones) inline en el panel.
+- **Cotizaciones reales**: numeración automática `COT-2026-#####`, ítems con
+  **precio/costo snapshot** del catálogo (mutar el catálogo no cambia
+  cotizaciones viejas), cálculo central subtotal/descuento/IVA/costo/utilidad/
+  margen, estados (borrador, pendiente, enviada, aprobada, rechazada, vencida,
+  convertida), duplicar, editar (solo no-aprobadas), **PDF con la plantilla
+  predeterminada** (FASE 3) y conversión aprobada→proyecto.
+- **Límites del dueño** (`config_comercial`): descuento máximo (20% por
+  defecto) y margen mínimo (15% por defecto); los administradores no pueden
+  guardar cotizaciones que los violen; el dueño puede (son sus reglas).
+- **Indicadores** (`/indicadores`): conteos y valores reales — cotizaciones,
+  aprobadas, valor cotizado/aprobado, proyectos activos/finalizados, gastos,
+  clientes, servicios más solicitados. El Resumen del panel los consume.
+- Migración `002_cotizaciones_comercial`: columnas nuevas + numeración
+  retroactiva + remapeo aceptada→aprobada (no destructiva).
+
 ## Variables de entorno
 
 | Variable | Default | Uso |

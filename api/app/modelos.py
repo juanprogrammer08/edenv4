@@ -34,12 +34,88 @@ class Empresa(Base):
 class Cotizacion(Base):
     __tablename__ = "cotizaciones"
     id = Column(Integer, primary_key=True, index=True)
-    cliente = Column(String(100), nullable=False)
+    numero = Column(String(20), index=True, nullable=True)  # COT-2026-00001
+    cliente = Column(String(200), nullable=False)  # snapshot del nombre
+    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True)
     descripcion = Column(Text, nullable=True)
+    subtotal = Column(Float, default=0.0)
+    descuento_pct = Column(Float, default=0.0)
+    descuento_valor = Column(Float, default=0.0)
+    iva_pct = Column(Float, default=0.0)
+    iva_valor = Column(Float, default=0.0)
     total = Column(Float, default=0.0)
-    estado = Column(String(20), default="pendiente")  # pendiente, aceptada, rechazada
+    costo_estimado = Column(Float, default=0.0)
+    utilidad = Column(Float, default=0.0)
+    tiempo_ejecucion = Column(String(120), default="")
+    forma_pago = Column(String(200), default="")
+    vigencia_cotizacion = Column(String(120), default="")
+    observaciones = Column(Text, default="")
+    # borrador, pendiente, enviada, aprobada, rechazada, vencida, convertida
+    estado = Column(String(20), default="borrador")
+    plantilla_id = Column(Integer, nullable=True)
+    plantilla_version = Column(Integer, nullable=True)
+    documento_id = Column(Integer, nullable=True)
     creado_por_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     creado_en = Column(DateTime, default=datetime.utcnow)
+
+
+class CotizacionItem(Base):
+    """Ítems de una cotización con precio/costo SNAPSHOT (mutar el catálogo
+    después no cambia cotizaciones antiguas)."""
+    __tablename__ = "cotizaciones_items"
+    id = Column(Integer, primary_key=True, index=True)
+    cotizacion_id = Column(Integer, ForeignKey("cotizaciones.id"), index=True, nullable=False)
+    servicio_id = Column(Integer, ForeignKey("servicios.id"), nullable=True)
+    orden = Column(Integer, default=0)
+    descripcion = Column(String(500), nullable=False)
+    cantidad = Column(Float, nullable=False)
+    unidad = Column(String(30), default="und")
+    precio_unitario = Column(Float, nullable=False)
+    costo_unitario = Column(Float, default=0.0)
+
+
+class Servicio(Base):
+    """Catálogo de servicios y precios (el dueño lo administra)."""
+    __tablename__ = "servicios"
+    id = Column(Integer, primary_key=True, index=True)
+    codigo = Column(String(20), unique=True, index=True, nullable=False)
+    nombre = Column(String(150), nullable=False)
+    descripcion = Column(Text, default="")
+    categoria = Column(String(60), default="general")
+    unidad = Column(String(30), default="und")
+    precio_venta = Column(Float, nullable=False)
+    costo_materiales = Column(Float, default=0.0)
+    costo_mano_obra = Column(Float, default=0.0)
+    tiempo_estimado_horas = Column(Float, default=0.0)
+    activo = Column(Boolean, default=True)
+    creado_por_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+
+class Cliente(Base):
+    """Base comercial centralizada (los clientes NO son usuarios del sistema)."""
+    __tablename__ = "clientes"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(200), unique=True, index=True, nullable=False)
+    nit = Column(String(50), default="")
+    contacto = Column(String(100), default="")
+    telefono = Column(String(50), default="")
+    correo = Column(String(120), default="")
+    direccion = Column(String(200), default="")
+    ciudad = Column(String(100), default="")
+    descripcion = Column(Text, default="")
+    activo = Column(Boolean, default=True)
+    creado_por_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+
+class ConfigComercial(Base):
+    """Reglas del dueño: límites de descuento y margen mínimo (fila única id=1)."""
+    __tablename__ = "config_comercial"
+    id = Column(Integer, primary_key=True, index=True)
+    descuento_max_pct = Column(Float, default=20.0)
+    margen_minimo_pct = Column(Float, default=15.0)
+    actualizado_en = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Proyecto(Base):

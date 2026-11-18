@@ -1,6 +1,7 @@
 import React, { useState, useEffect, createContext, useContext } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { VistaPlantillas } from './Plantillas.jsx'
+import { VistaCotizaciones, VistaClientes, VistaServicios } from './Comercial.jsx'
 
 // ============================================================
 // API helper
@@ -186,74 +187,71 @@ function RegisterPage() {
 // ============================================================
 function VistaResumen({ auth }) {
   const [empresa, setEmpresa] = useState(null)
-  const [cotizaciones, setCotizaciones] = useState(null)
+  const [ind, setInd] = useState(null)
   const [error, setError] = useState(null)
 
   useEffect(() => {
     let vivo = true
     Promise.all([
       apiFetch('/empresa', { token: auth.token }),
-      apiFetch('/cotizaciones', { token: auth.token }),
+      apiFetch('/indicadores', { token: auth.token }),
     ])
-      .then(([emp, cots]) => {
+      .then(([emp, indRes]) => {
         if (!vivo) return
         setEmpresa(emp)
-        setCotizaciones(Array.isArray(cots) ? cots : [])
+        setInd(indRes)
       })
       .catch(err => vivo && setError(err.message))
     return () => { vivo = false }
   }, [auth.token])
 
   if (error) return <div className="alert alert-error">{error}</div>
+  if (!ind || !empresa) return <div className="spinner" />
 
-  const aprobadas = (cotizaciones || []).filter(c => c.estado === 'aceptada')
-  const totalCotizado = (cotizaciones || []).reduce((s, c) => s + (c.total || 0), 0)
   const fmt = n => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0)
 
   return (
     <div>
-      <h3 className="vista-titulo">Resumen</h3>
-      {!empresa && !cotizaciones ? <div className="spinner" /> : (
-        <>
-          <div className="grid-cards">
-            <div className="stat-card">
-              <span className="stat-valor">{cotizaciones ? cotizaciones.length : '—'}</span>
-              <span className="stat-etiqueta">Cotizaciones registradas</span>
-            </div>
-            <div className="stat-card">
-              <span className="stat-valor">{aprobadas.length}</span>
-              <span className="stat-etiqueta">Aprobadas</span>
-            </div>
-            <div className="stat-card">
-              <span className="stat-valor">{fmt(totalCotizado)}</span>
-              <span className="stat-etiqueta">Valor cotizado</span>
-            </div>
+      <h3 className="vista-titulo">Resumen con datos reales</h3>
+      <div className="grid-cards">
+        <div className="stat-card"><span className="stat-valor">{ind.cotizaciones.total}</span><span className="stat-etiqueta">Cotizaciones</span></div>
+        <div className="stat-card"><span className="stat-valor">{ind.cotizaciones.aprobadas}</span><span className="stat-etiqueta">Aprobadas</span></div>
+        <div className="stat-card"><span className="stat-valor">{fmt(ind.cotizaciones.valor_cotizado)}</span><span className="stat-etiqueta">Valor cotizado</span></div>
+        <div className="stat-card"><span className="stat-valor">{ind.proyectos.activos}</span><span className="stat-etiqueta">Proyectos activos</span></div>
+        <div className="stat-card"><span className="stat-valor">{fmt(ind.gastos_total)}</span><span className="stat-etiqueta">Gastos</span></div>
+        <div className="stat-card"><span className="stat-valor">{ind.clientes_total}</span><span className="stat-etiqueta">Clientes</span></div>
+      </div>
+      {ind.servicios_mas_solicitados.length > 0 && (
+        <div className="card">
+          <h4>Servicios más solicitados</h4>
+          <div className="tabla-datos">
+            {ind.servicios_mas_solicitados.map(s => (
+              <div key={s.nombre}><span>{s.nombre}</span><strong>{s.usos} veces</strong></div>
+            ))}
           </div>
-          {empresa && (
-            <div className="card">
-              <h4>Empresa</h4>
-              <div className="tabla-datos">
-                <div><span>Nombre</span><strong>{empresa.nombre || 'Pendiente de configurar'}</strong></div>
-                <div><span>NIT</span><strong>{empresa.nit || '—'}</strong></div>
-                <div><span>Ciudad</span><strong>{empresa.ciudad || '—'}</strong></div>
-                <div><span>Teléfono</span><strong>{empresa.telefono || '—'}</strong></div>
-              </div>
-              {auth.user.rol === 'dueno' && !empresa.nombre && (
-                <p className="nota">Configura los datos de tu empresa en la sección <strong>Empresa</strong>.</p>
-              )}
-            </div>
-          )}
-          <div className="card card-quieto">
-            <h4>Construcción por fases</h4>
-            <p className="muted">
-              Fase 1 (fundamentos, roles y seguridad) está en producción.
-              Telegram, plantillas DOCX, catálogo de servicios, cotizaciones completas,
-              proyectos, gastos, agenda, documentos, credenciales y EDÉN AI Core se
-              activarán por fases — cada módulo aparece aquí cuando funcione de verdad.
-            </p>
-          </div>
-        </>
+        </div>
       )}
+      <div className="card">
+        <h4>Empresa</h4>
+        <div className="tabla-datos">
+          <div><span>Nombre</span><strong>{empresa.nombre || 'Pendiente de configurar'}</strong></div>
+          <div><span>NIT</span><strong>{empresa.nit || '—'}</strong></div>
+          <div><span>Ciudad</span><strong>{empresa.ciudad || '—'}</strong></div>
+          <div><span>Teléfono</span><strong>{empresa.telefono || '—'}</strong></div>
+        </div>
+        {auth.user.rol === 'dueno' && !empresa.nombre && (
+          <p className="nota">Configura los datos de tu empresa en la sección <strong>Empresa</strong>.</p>
+        )}
+      </div>
+      <div className="card card-quieto">
+        <h4>Construcción por fases</h4>
+        <p className="muted">
+          Fases 1-4 en producción: roles y seguridad, Telegram, plantillas con tu diseño,
+          catálogo de servicios, clientes y cotizaciones reales con ítems, PDF y conversión
+          a proyectos. Siguientes: EDÉN AI Core, finanzas completas, agenda, documentos,
+          bóveda de credenciales y reportes — cada módulo aparece cuando funcione de verdad.
+        </p>
+      </div>
     </div>
   )
 }
@@ -747,6 +745,9 @@ function Dashboard({ auth }) {
   const esDueno = auth.user.rol === 'dueno'
    const items = [
     { id: 'resumen', nombre: 'Resumen' },
+    { id: 'cotizaciones', nombre: 'Cotizaciones' },
+    { id: 'clientes', nombre: 'Clientes' },
+    { id: 'servicios', nombre: 'Servicios' },
     { id: 'empresa', nombre: 'Empresa' },
     { id: 'telegram', nombre: 'Telegram' },
     { id: 'plantillas', nombre: 'Plantillas' },
@@ -780,6 +781,9 @@ function Dashboard({ auth }) {
         {vista === 'empresa' && <VistaEmpresa alGuardar={cargarEmpresa} auth={auth} empresa={empresa} />}
         {vista === 'telegram' && <VistaTelegram auth={auth} />}
         {vista === 'plantillas' && <VistaPlantillas auth={auth} />}
+        {vista === 'cotizaciones' && <VistaCotizaciones auth={auth} />}
+        {vista === 'clientes' && <VistaClientes auth={auth} />}
+        {vista === 'servicios' && <VistaServicios auth={auth} />}
         {vista === 'cuenta' && <VistaCuenta auth={auth} />}
         {vista === 'usuarios' && <VistaUsuarios auth={auth} />}
       </main>

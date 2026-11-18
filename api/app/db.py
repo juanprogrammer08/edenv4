@@ -102,6 +102,46 @@ def _m001_rol_usuarios(conn):
 MIGRACIONES.append(("001_rol_usuarios", _m001_rol_usuarios))
 
 
+def _add_col_si_falta(conn, tabla, columna, ddl):
+    if not _columna_existe(conn, tabla, columna):
+        conn.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {ddl}"))
+
+
+def _m002_cotizaciones_comercial(conn):
+    """FASE 4: cotizaciones con ítems, numeración y estados nuevos.
+    - Añade columnas del modelo comercial.
+    - Backfill: numero = COT-<id con ceros>.
+    - Estados antiguos: aceptada -> aprobada."""
+    add_cols = [
+        ("numero", "numero VARCHAR(20)"),
+        ("cliente_id", "cliente_id INTEGER"),
+        ("subtotal", "subtotal FLOAT DEFAULT 0"),
+        ("descuento_pct", "descuento_pct FLOAT DEFAULT 0"),
+        ("descuento_valor", "descuento_valor FLOAT DEFAULT 0"),
+        ("iva_pct", "iva_pct FLOAT DEFAULT 0"),
+        ("iva_valor", "iva_valor FLOAT DEFAULT 0"),
+        ("costo_estimado", "costo_estimado FLOAT DEFAULT 0"),
+        ("utilidad", "utilidad FLOAT DEFAULT 0"),
+        ("tiempo_ejecucion", "tiempo_ejecucion VARCHAR(120) DEFAULT ''"),
+        ("forma_pago", "forma_pago VARCHAR(200) DEFAULT ''"),
+        ("vigencia_cotizacion", "vigencia_cotizacion VARCHAR(120) DEFAULT ''"),
+        ("observaciones", "observaciones TEXT DEFAULT ''"),
+        ("plantilla_id", "plantilla_id INTEGER"),
+        ("plantilla_version", "plantilla_version INTEGER"),
+        ("documento_id", "documento_id INTEGER"),
+    ]
+    for columna, ddl in add_cols:
+        _add_col_si_falta(conn, "cotizaciones", columna, ddl)
+    numerar = conn.execute(text("SELECT id FROM cotizaciones WHERE numero IS NULL")).fetchall()
+    for (cid,) in numerar:
+        conn.execute(text("UPDATE cotizaciones SET numero = :num WHERE id = :id"),
+                     {"num": f"COT-{cid:05d}", "id": cid})
+    conn.execute(text("UPDATE cotizaciones SET estado = 'aprobada' WHERE estado = 'aceptada'"))
+
+
+MIGRACIONES.append(("002_cotizaciones_comercial", _m002_cotizaciones_comercial))
+
+
 def _registrar_migracion(conn, version):
     conn.execute(text(
         f"INSERT INTO {TABLA_MIGRACIONES} (version) SELECT '{version}' "

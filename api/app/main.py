@@ -24,6 +24,7 @@ from app.seguridad import (
 )
 from app.telegram import router as telegram_router, arrancar_telegram
 from app.plantillas import router as plantillas_router
+from app.comercial import router as comercial_router
 
 # Aviso sin romper el arranque en desarrollo
 from app.config import AUTH_SECRET
@@ -53,6 +54,7 @@ async def _al_arrancar():
 
 app.include_router(telegram_router)
 app.include_router(plantillas_router)
+app.include_router(comercial_router)
 
 # ============================================================
 # ESQUEMAS Pydantic
@@ -92,22 +94,7 @@ class EmpresaOut(EmpresaBase):
 
     model_config = ConfigDict(from_attributes=True)
 
-class CotizacionCreate(BaseModel):
-    cliente: str
-    descripcion: Optional[str] = None
-    total: float = 0.0
-    estado: Optional[str] = "pendiente"
-
-class CotizacionOut(BaseModel):
-    id: int
-    cliente: str
-    descripcion: Optional[str]
-    total: float
-    estado: str
-    creado_por_id: int
-    creado_en: datetime
-
-    model_config = ConfigDict(from_attributes=True)
+# Las cotizaciones viven en app/comercial.py (FASE 4): ítems, numeración y estados.
 
 class ProyectoCreate(BaseModel):
     nombre: str
@@ -288,7 +275,7 @@ def eliminar_administrador(usuario_id: int, current_user: User = Depends(require
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No se puede eliminar al dueño")
     if user.id == current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes eliminar tu propia cuenta")
-    if db.execute(select(Cotizacion).where(Cotizacion.creado_por_id == usuario_id)).scalar_one_or_none():
+    if db.execute(select(Cotizacion).where(Cotizacion.creado_por_id == usuario_id)).first():
         user.is_active = False
         db.commit()
         registrar_auditoria(db, "usuario_desactivado_por_historial", usuario=current_user, detalle=f"{user.username}")
@@ -337,55 +324,6 @@ def list_auditoria(limit: int = 100, action: Optional[str] = None,
     if action:
         query = query.where(Auditoria.accion.contains(action))
     return db.execute(query).scalars().all()
-
-# --- CRUD Cotizaciones ---
-
-@app.post("/cotizaciones", response_model=CotizacionOut)
-def create_cotizacion(cotizacion: CotizacionCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    db_cot = Cotizacion(
-        cliente=cotizacion.cliente,
-        descripcion=cotizacion.descripcion,
-        total=cotizacion.total,
-        estado=cotizacion.estado,
-        creado_por_id=current_user.id
-    )
-    db.add(db_cot)
-    db.commit()
-    db.refresh(db_cot)
-    return db_cot
-
-@app.get("/cotizaciones", response_model=List[CotizacionOut])
-def list_cotizaciones(skip: int = 0, limit: int = 100, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.execute(select(Cotizacion).offset(skip).limit(limit)).scalars().all()
-
-@app.get("/cotizaciones/{cotizacion_id}", response_model=CotizacionOut)
-def get_cotizacion(cotizacion_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    cot = db.execute(select(Cotizacion).where(Cotizacion.id == cotizacion_id)).scalar_one_or_none()
-    if not cot:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cotización no encontrada")
-    return cot
-
-@app.put("/cotizaciones/{cotizacion_id}", response_model=CotizacionOut)
-def update_cotizacion(cotizacion_id: int, cotizacion: CotizacionCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    cot = db.execute(select(Cotizacion).where(Cotizacion.id == cotizacion_id)).scalar_one_or_none()
-    if not cot:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cotización no encontrada")
-    cot.cliente = cotizacion.cliente
-    cot.descripcion = cotizacion.descripcion
-    cot.total = cotizacion.total
-    cot.estado = cotizacion.estado
-    db.commit()
-    db.refresh(cot)
-    return cot
-
-@app.delete("/cotizaciones/{cotizacion_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_cotizacion(cotizacion_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    cot = db.execute(select(Cotizacion).where(Cotizacion.id == cotizacion_id)).scalar_one_or_none()
-    if not cot:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cotización no encontrada")
-    db.delete(cot)
-    db.commit()
-    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
 
 # --- CRUD Proyectos ---
 

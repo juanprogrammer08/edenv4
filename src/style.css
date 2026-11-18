@@ -319,6 +319,30 @@ input:focus, select:focus, textarea:focus {
   background: rgba(248, 113, 113, 0.1);
 }
 
+.badge-verde {
+  color: var(--c-verde);
+  border-color: rgba(52, 211, 153, 0.45);
+  background: rgba(52, 211, 153, 0.1);
+}
+
+.mini-select {
+  font-family: inherit;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: var(--radio-mini);
+  border: 1px solid var(--c-borde);
+  background: rgba(4, 9, 18, 0.6);
+  color: var(--c-texto);
+}
+
+.history-box {
+  background: rgba(4, 9, 18, 0.4);
+  border: 1px dashed var(--c-borde);
+  border-radius: var(--radio-mini);
+  padding: 0.8rem;
+  margin: 0.6rem 0;
+}
+
 .codigo-grande {
   font-size: 1.6rem;
   font-weight: 700;
