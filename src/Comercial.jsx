@@ -506,7 +506,7 @@ export function VistaCotizaciones({ auth }) {
           {items.map((it, idx) => (
             <div className="fila-form items-fila" key={idx}>
               <div className="form-group crece-3">
-                <label>Servicio / descripción</label>
+                <label>Servicio del catálogo / material</label>
                 <select value={it.servicio_id || ''}
                         onChange={e => {
                           const s = servicios.find(x => String(x.id) === e.target.value)
@@ -516,7 +516,7 @@ export function VistaCotizaciones({ auth }) {
                             precio_unitario: s.precio_venta, costo_unitario: s.costo_total,
                           } : x))
                         }}>
-                  <option value="">— texto libre —</option>
+                  <option value="">— material o texto libre —</option>
                   {servicios.map(s => <option key={s.id} value={s.id}>{s.codigo} · {s.nombre}</option>)}
                 </select>
                 <input value={it.descripcion}

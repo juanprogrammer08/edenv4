@@ -513,9 +513,9 @@ export function VistaCredenciales({ auth }) {
       <form onSubmit={crear} className="card">
         <h4>Nueva credencial</h4>
         <div className="form-grid">
-          <div className="form-group"><label>Plataforma</label>
+          <div className="form-group"><label>Plataforma o equipo</label>
             <input value={nuevo.plataforma} onChange={e => setNuevo({ ...nuevo, plataforma: e.target.value })} required /></div>
-          <div className="form-group"><label>URL</label>
+          <div className="form-group"><label>URL (opcional) · o ubicación del equipo en la empresa</label>
             <input value={nuevo.url} onChange={e => setNuevo({ ...nuevo, url: e.target.value })} /></div>
           <div className="form-group"><label>Usuario de la cuenta</label>
             <input value={nuevo.usuario_cuenta} onChange={e => setNuevo({ ...nuevo, usuario_cuenta: e.target.value })} /></div>
@@ -535,7 +535,7 @@ export function VistaCredenciales({ auth }) {
           <p className="muted">Bóveda vacía. Las contraseñas se guardan cifradas y revelarlas queda auditado.</p>
         ) : (
           <table className="table">
-            <thead><tr><th>Plataforma</th><th>URL</th><th>Usuario</th><th>Categoría</th><th></th></tr></thead>
+            <thead><tr><th>Plataforma o equipo</th><th>URL / Ubicación</th><th>Usuario</th><th>Categoría</th><th></th></tr></thead>
             <tbody>
               {credenciales.map(c => (
                 <tr key={c.id}>
