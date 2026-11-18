@@ -84,6 +84,9 @@ class ServicioIn(BaseModel):
     categoria: str = Field("servicio", max_length=60)  # servicio | material (desplegable)
     unidad: str = Field("und", max_length=30)
     marca_id: Optional[int] = None
+    # material en paquete (rollo/caja): cuántos metros trae cada unidad de venta
+    contenido_cantidad: Optional[float] = Field(None, gt=0)
+    contenido_unidad: str = Field("metro", max_length=20)
     precio_venta: float = Field(..., ge=0)
     costo_materiales: float = Field(0, ge=0)
     costo_mano_obra: float = Field(0, ge=0)
@@ -106,10 +109,16 @@ def _servicio_out(s: Servicio, db: Session) -> dict:
     if s.marca_id:
         fila = db.execute(select(Marca).where(Marca.id == s.marca_id)).scalar_one_or_none()
         marca = fila.nombre if fila else None
+    precio_por_contenido = None
+    if s.contenido_cantidad and s.contenido_cantidad > 0:
+        precio_por_contenido = round((s.precio_venta or 0) / s.contenido_cantidad, 2)
     return {
         "id": s.id, "codigo": s.codigo, "nombre": s.nombre, "descripcion": s.descripcion,
         "categoria": s.categoria, "unidad": s.unidad, "marca_id": s.marca_id,
         "marca": marca,
+        "contenido_cantidad": s.contenido_cantidad,
+        "contenido_unidad": s.contenido_unidad or "metro",
+        "precio_por_contenido": precio_por_contenido,
         "precio_venta": s.precio_venta,
         "costo_materiales": s.costo_materiales, "costo_mano_obra": s.costo_mano_obra,
         "costo_total": costo, "margen_pct": round(margen, 1),

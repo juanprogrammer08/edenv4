@@ -194,6 +194,17 @@ def _m004_marcas_servicios(conn):
 MIGRACIONES.append(("004_marca_servicios", _m004_marcas_servicios))
 
 
+def _m005_contenido_materiales(conn):
+    """Cable por rollo: contenido de la unidad de venta (m) y precio derivado."""
+    if not _columna_existe(conn, "servicios", "contenido_cantidad"):
+        conn.execute(text("ALTER TABLE servicios ADD COLUMN contenido_cantidad FLOAT"))
+    if not _columna_existe(conn, "servicios", "contenido_unidad"):
+        conn.execute(text("ALTER TABLE servicios ADD COLUMN contenido_unidad VARCHAR(20) DEFAULT 'metro'"))
+
+
+MIGRACIONES.append(("005_contenido_materiales", _m005_contenido_materiales))
+
+
 def _registrar_migracion(conn, version):
     conn.execute(text(
         f"INSERT INTO {TABLA_MIGRACIONES} (version) SELECT '{version}' "

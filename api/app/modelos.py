@@ -85,6 +85,10 @@ class Servicio(Base):
     categoria = Column(String(60), default="servicio")
     unidad = Column(String(30), default="und")
     marca_id = Column(Integer, ForeignKey("marcas.id"), nullable=True)
+    # Para materiales vendidos por paquete (rollo/caja): cuántos metros (u otra
+    # medida) trae cada unidad de venta; el precio por metro se DERIVA de esto.
+    contenido_cantidad = Column(Float, nullable=True)
+    contenido_unidad = Column(String(20), default="metro")
     precio_venta = Column(Float, nullable=False)
     costo_materiales = Column(Float, default=0.0)
     costo_mano_obra = Column(Float, default=0.0)

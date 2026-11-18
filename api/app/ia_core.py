@@ -214,15 +214,25 @@ def _fmt(v) -> str:
 
 def _lista_servicios(db: Session, args: dict) -> str:
     query = select(Servicio).where(Servicio.activo == True)  # noqa: E712
+    if args.get("categoria"):
+        query = query.where(Servicio.categoria == args["categoria"])
     if args.get("q"):
         query = query.where(Servicio.nombre.contains(args["q"]))
     filas = db.execute(query.limit(30)).scalars().all()
     if not filas:
         return json.dumps({"servicios": [], "nota": "catálogo vacío o sin coincidencias"}, ensure_ascii=False)
-    return json.dumps({"servicios": [{
-        "codigo": s.codigo, "nombre": s.nombre, "unidad": s.unidad,
-        "precio_venta": s.precio_venta, "costo_total": (s.costo_materiales or 0) + (s.costo_mano_obra or 0),
-    } for s in filas]}, ensure_ascii=False)
+    salida = []
+    for s in filas:
+        item = {
+            "codigo": s.codigo, "nombre": s.nombre, "categoria": s.categoria,
+            "unidad": s.unidad, "precio_venta": s.precio_venta,
+            "costo_total": (s.costo_materiales or 0) + (s.costo_mano_obra or 0),
+        }
+        if s.contenido_cantidad:
+            item["contenido"] = f"{s.contenido_cantidad} {s.contenido_unidad or 'metro'} por {s.unidad}"
+            item["precio_por_contenido"] = round((s.precio_venta or 0) / s.contenido_cantidad, 2)
+        salida.append(item)
+    return json.dumps({"servicios": salida}, ensure_ascii=False)
 
 
 def _lista_clientes(db: Session, args: dict) -> str:
@@ -496,7 +506,12 @@ BASE_PROMPT = (
     "2. Para crear cliente, cotización o generar PDF solo PRESENTAS la propuesta y llamas a la "
     "herramienta de escritura: el sistema exige autorización humana y el usuario confirmará.\n"
     "3. Si falta información clave (nombre del cliente, cantidades), pregunta antes de proponer.\n"
-    "4. Responde en español, breve y profesional, con cifras formateadas. "
+    "4. MATERIALES EN PAQUETE: si un material trae \"contenido\" (ej. rollo de 305 metros), "
+    "para cantidades en metros usa el precio_por_contenido (precio por metro DERIVADO del "
+    "catálogo, no inventado) con unidad=metro; para paquetes completos usa precio_venta con "
+    "su unidad (rollo). Si el usuario pide más metros de los de un paquete, cotiza los paquetes "
+    "completos necesarios según su preferencia, y pregunta solo si es ambiguo.\n"
+    "5. Responde en español, breve y profesional, con cifras formateadas. "
     "Si los datos no existen, dilo con honestidad.\n"
 )
 

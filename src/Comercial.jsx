@@ -53,7 +53,7 @@ export function VistaServicios({ auth }) {
   const [msg, setMsg] = useState(null)
   const [nuevo, setNuevo] = useState({
     nombre: '', descripcion: '', categoria: 'servicio', unidad: 'punto', marca_id: '',
-    precio_venta: 0, costo_mano_obra: 0,
+    precio_venta: 0, costo_mano_obra: 0, contenido_cantidad: '',
   })
   const [otraUnidad, setOtraUnidad] = useState('')
   const [trabajo, setTrabajo] = useState(false)
@@ -80,10 +80,12 @@ export function VistaServicios({ auth }) {
         precio_venta: Number(nuevo.precio_venta) || 0,
         costo_materiales: 0, costo_mano_obra: Number(nuevo.costo_mano_obra) || 0,
         tiempo_estimado_horas: 0,
+        contenido_cantidad: nuevo.contenido_cantidad ? Number(nuevo.contenido_cantidad) : null,
+        contenido_unidad: 'metro',
       }
       await apiFetch('/servicios', { method: 'POST', body: cuerpo, token: auth.token })
       setNuevo({ nombre: '', descripcion: '', categoria: nuevo.categoria, unidad: 'punto', marca_id: '',
-                 precio_venta: 0, costo_mano_obra: 0 })
+                 precio_venta: 0, costo_mano_obra: 0, contenido_cantidad: '' })
       setOtraUnidad('')
       setMsg({ tipo: 'ok', texto: `Agregado al catálogo con código automático (${nuevo.categoria === 'material' ? 'MAT' : 'SER'}-…).` })
       await cargar()
@@ -171,6 +173,15 @@ export function VistaServicios({ auth }) {
                 <input value={otraUnidad} onChange={e => setOtraUnidad(e.target.value)}
                        placeholder="ej.: par de conectores" /></div>
             )}
+            {(nuevo.unidad === 'rollo' || nuevo.unidad === 'caja' || nuevo.unidad === '__otro__') && nuevo.categoria === 'material' && (
+              <div className="form-group"><label>¿Cuántos METROS trae cada uno?</label>
+                <input type="number" step="any" min="0" value={nuevo.contenido_cantidad}
+                       placeholder="ej.: 305"
+                       onChange={e => setNuevo({ ...nuevo, contenido_cantidad: e.target.value })} />
+                {Number(nuevo.contenido_cantidad) > 0 && Number(nuevo.precio_venta) > 0 && (
+                  <em className="nota">≈ {fmtCOP(Number(nuevo.precio_venta) / Number(nuevo.contenido_cantidad))} por metro</em>
+                )}</div>
+            )}
             <div className="form-group"><label>Marca / proveedor (opcional)</label>
               <div className="fila-acciones" style={{ gap: '0.4rem', margin: 0, flexWrap: 'nowrap' }}>
                 <select style={{ flex: 1 }} value={nuevo.marca_id}
@@ -211,7 +222,7 @@ export function VistaServicios({ auth }) {
                   <td>{s.nombre}</td>
                   <td>{s.categoria === 'material' ? 'Material' : 'Servicio'}</td>
                   <td>{s.marca || '—'}</td>
-                  <td>{s.unidad}</td>
+                  <td>{s.unidad}{s.contenido_cantidad ? ` de ${s.contenido_cantidad} ${s.contenido_unidad || 'm'}` : ''}</td>
                   <td>{fmtCOP(s.precio_venta)}</td>
                   <td>{s.activo ? 'Activo' : 'Inactivo'}</td>
                   <td className="acciones">
@@ -578,6 +589,22 @@ export function VistaCotizaciones({ auth }) {
                 <input value={it.descripcion}
                        onChange={e => setItems(items.map((x, i) => i === idx ? { ...x, descripcion: e.target.value } : x))}
                        required placeholder="Descripción de la fila" />
+                {it.servicio_id && (() => {
+                  const sj = servicios.find(x => x.id === Number(it.servicio_id))
+                  if (!sj || !sj.contenido_cantidad) return null
+                  return (
+                    <div className="nota">
+                      1 {sj.unidad} = {sj.contenido_cantidad} {sj.contenido_unidad || 'm'} → {fmtCOP(sj.precio_por_contenido)}/{sj.contenido_unidad || 'm'}
+                      <button type="button" className="btn btn-mini" style={{ marginLeft: '0.5rem' }}
+                              onClick={() => setItems(items.map((x, i) => i === idx ? {
+                                ...x, unidad: sj.contenido_unidad || 'metro',
+                                precio_unitario: sj.precio_por_contenido,
+                              } : x))}>
+                        Usar por metro
+                      </button>
+                    </div>
+                  )
+                })()}
               </div>
               <div className="form-group crece-1">
                 <label>Cant.</label>
