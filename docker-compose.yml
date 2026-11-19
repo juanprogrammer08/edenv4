@@ -36,7 +36,7 @@ services:
     build:
       context: .
       dockerfile: web.Dockerfile
-    ports: ['8080:80']
+    ports: ['8096:80']
     depends_on: [api]
 volumes:
   pgdata: {}
