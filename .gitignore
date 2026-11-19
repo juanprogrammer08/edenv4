@@ -8,3 +8,4 @@ _inspeccion_bd.py
 package-lock.json
 dist/
 *.db.backup-*
+api/media/
