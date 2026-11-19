@@ -37,7 +37,6 @@ if AUTH_SECRET == "secret-key-change-me":
 app = FastAPI(
     title="YERUZZA Empresarial Asist — Plataforma Empresarial Inteligente",
     version=APP_VERSION,
-    root_path="/api",
 )
 
 app.add_middleware(
@@ -349,3 +348,25 @@ def delete_bitacora(bitacora_id: int, current_user: User = Depends(get_current_u
     db.delete(bit)
     db.commit()
     return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+
+
+# ============================================================
+# Prefijo /api a prueba de proxys y versiones: el propio app LO QUITA.
+# nginx/vite reenvían /api/sin-quitar-el-prefijo, y aquí se limpia una sola
+# vez para que las rutas (definidas sin prefijo) funcionen siempre igual.
+# ============================================================
+class _QuitaPrefijoApi:
+    def __init__(self, asgi):
+        self.asgi = asgi
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") in ("http", "websocket"):
+            ruta = scope.get("path", "")
+            if ruta == "/api":
+                scope = dict(scope, path="/")
+            elif ruta.startswith("/api/"):
+                scope = dict(scope, path=ruta[len("/api"):])
+        await self.asgi(scope, receive, send)
+
+
+app = _QuitaPrefijoApi(app)
